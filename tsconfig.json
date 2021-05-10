@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "outDir": "dist/esm",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "declaration": true,
+
+    "strict": true,
+    "noImplicitReturns": true,
+    "noImplicitAny": true,
+    "target": "ES2015",
+    "lib": ["ES2015", "DOM"],
+    "allowJs": true,
+    "downlevelIteration": true,
+    "allowSyntheticDefaultImports": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src"]
+}
