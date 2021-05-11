@@ -17,9 +17,8 @@
   },
   "license": "ISC",
   "scripts": {
-    "start": "ts-node-dev --respawn example/example.ts",
     "build": "npm-run-all -s build:clean -p build:compile:*",
-    "build:clean": "rimraf esm/** cjs/**",
+    "build:clean": "rimraf dist/**",
     "build:compile:esm": "tsc",
     "build:compile:cjs": "tsc -p tsconfig-cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
     "lint": "run-p lint:*",
@@ -33,7 +32,7 @@
   "keywords": [],
   "devDependencies": {
     "@types/mongodb": "^3.6.12",
-    "@typescript-eslint/eslint-plugin": "^4.22.1",
+    "@typescript-eslint/eslint-plugin": "^4.23.0",
     "ava": "^3.15.0",
     "eslint": "^7.26.0",
     "npm-run-all": "^4.1.5",
@@ -42,9 +41,12 @@
     "typescript": "^4.2.4"
   },
   "dependencies": {
-    "schummar-queue": "^0.0.2"
+    "schummar-queue": "0.0.4"
   },
   "peerDependencies": {
     "mongodb": "^3.6.6"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

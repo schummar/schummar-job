@@ -1,32 +1,123 @@
 import test from 'ava';
 import { MongoClient } from 'mongodb';
 import { Job, Scheduler } from '../src';
+import { countdown } from './_helpers';
 
-test('foo', async (t) => {
-  t.plan(6);
+const client = MongoClient.connect('mongodb://localhost', { useUnifiedTopology: true });
+const collection = client.then((client) => client.db('dev').collection('jobs'));
+let scheduler = new Scheduler(collection, { lockDuration: 100 });
 
-  const client = await MongoClient.connect('mongodb://localhost', { useUnifiedTopology: true });
-  const scheduler = new Scheduler(client.db('dev').collection('jobs'), { lockDuration: 100 });
-  await scheduler.reset();
+test.before(async () => {
+  await scheduler.clearDB();
+});
 
-  const props = (name: string) =>
-    [
+test.afterEach.always(async () => {
+  await scheduler.clearDB();
+  scheduler.clearJobs();
+});
+
+test.serial('simple', async (t) => {
+  await countdown(1, async (count) => {
+    const job = new Job(scheduler, 'job0', ({ x }: { x: number }) => {
+      t.is(x, 42);
+      count();
+    });
+
+    await job.execute({ x: 42 });
+  });
+});
+
+test.serial('error once', async (t) => {
+  await countdown(2, async (count) => {
+    const job = new Job(
       scheduler,
       'job0',
-      ({ foo }: { foo: number }) => {
-        console.log(name, foo);
-        t.pass();
+      (_data, { tryCount, error }) => {
+        count();
+        if (tryCount === 0) throw Error('testerror');
+        t.is(error, 'testerror');
+        t.is(tryCount, 1);
       },
-      { schedule: { data: { foo: 43 }, interval: 1000 } },
+      { retryDelay: 0 }
+    );
+
+    await job.execute(undefined);
+  });
+});
+
+test.serial('error multiple', async (t) => {
+  await countdown(3, async (count) => {
+    const job = new Job(
+      scheduler,
+      'job0',
+      () => {
+        count();
+        throw Error('testerror');
+      },
+      { retryDelay: 0, retryCount: 2 }
+    );
+
+    await job.execute(undefined);
+  });
+
+  t.pass();
+});
+
+test.serial('multiple workers', async (t) => {
+  await countdown(5, async (count) => {
+    const props = [
+      scheduler,
+      'job0',
+      () => {
+        count();
+      },
     ] as const;
 
-  const job = new Job(...props('worker0'));
-  new Job(...props('worker1'));
-  new Job(...props('worker2'));
+    const job = new Job(...props);
+    new Job(...props);
+    new Job(...props);
 
-  await job.execute({ foo: 42 }, {});
-  await job.execute({ foo: 42 }, {});
-  await job.execute({ foo: 42 }, {});
+    await job.execute(undefined);
+    await job.execute(undefined);
+    await job.execute(undefined);
+    await job.execute(undefined);
+    await job.execute(undefined);
+  });
 
-  await new Promise((r) => setTimeout(r, 3500));
+  t.pass();
+});
+
+test.serial('schedule', async (t) => {
+  await countdown(2, async (count) => {
+    const job = new Job(
+      scheduler,
+      'job0',
+      () => {
+        count();
+      },
+      { schedule: { data: null, interval: 10 } }
+    );
+
+    await job.execute(null);
+  });
+
+  t.pass();
+});
+
+test.serial('restart', async (t) => {
+  await countdown(1, async (count) => {
+    let job = new Job(scheduler, 'job0', () => {
+      t.fail();
+    });
+
+    await job.execute(undefined);
+    scheduler.shutdown();
+    scheduler = new Scheduler(collection, { lockDuration: 100 });
+
+    job = new Job(scheduler, 'job0', () => {
+      count();
+    });
+  });
+
+  t.pass();
 });
