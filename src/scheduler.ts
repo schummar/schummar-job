@@ -1,7 +1,7 @@
 import { ChangeEvent, ChangeStream, Collection, Cursor, MongoClient } from 'mongodb';
 import { MaybePromise, sleep } from './helpers';
 import { Job } from './job';
-import { CollectionInfo, JobDbEntry, SchedulerOptions } from './types';
+import { DbConnection, JobDbEntry, SchedulerOptions } from './types';
 
 export class Scheduler {
   static DEFAULT_LOCK_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -14,7 +14,7 @@ export class Scheduler {
   private stream?: ChangeStream<JobDbEntry<any>>;
   private hasShutDown = false;
 
-  constructor(collection: CollectionInfo, public readonly options: SchedulerOptions = {}) {
+  constructor(collection: DbConnection, public readonly options: SchedulerOptions = {}) {
     if ('uri' in collection) {
       this.collection = MongoClient.connect(collection.uri).then((client) => client.db(collection.db).collection(collection.collection));
     } else {

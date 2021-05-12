@@ -41,7 +41,7 @@ test.serial('error once', async (t) => {
       { retryDelay: 0 }
     );
 
-    await job.execute(undefined);
+    await job.execute();
   });
 });
 
@@ -57,7 +57,7 @@ test.serial('error multiple', async (t) => {
       { retryDelay: 0, retryCount: 2 }
     );
 
-    await job.execute(undefined);
+    await job.execute();
   });
 
   t.pass();
@@ -77,11 +77,11 @@ test.serial('multiple workers', async (t) => {
     new Job(...props);
     new Job(...props);
 
-    await job.execute(undefined);
-    await job.execute(undefined);
-    await job.execute(undefined);
-    await job.execute(undefined);
-    await job.execute(undefined);
+    await job.execute();
+    await job.execute();
+    await job.execute();
+    await job.execute();
+    await job.execute();
   });
 
   t.pass();
@@ -95,10 +95,10 @@ test.serial('schedule', async (t) => {
       () => {
         count();
       },
-      { schedule: { data: null, interval: 10 } }
+      { schedule: { schedule: 10 } }
     );
 
-    await job.execute(null);
+    await job.execute();
   });
 
   t.pass();

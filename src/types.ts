@@ -1,10 +1,12 @@
 import { Collection, ObjectID } from 'mongodb';
 import { MaybePromise } from './helpers';
 
+export type Schedule = string | number;
+
 export type JobDbEntry<Data> = {
   _id: ObjectID;
   jobId: string;
-  interval: number | null;
+  schedule: Schedule | null;
   data: Data;
   nextRun: Date;
   lock: Date | null;
@@ -12,7 +14,7 @@ export type JobDbEntry<Data> = {
   tryCount: number;
 };
 
-export type CollectionInfo = MaybePromise<Collection<JobDbEntry<any>> | { uri: string; db: string; collection: string }>;
+export type DbConnection = MaybePromise<Collection<JobDbEntry<any>> | { uri: string; db: string; collection: string }>;
 
 export type SchedulerOptions = {
   retryCount?: number;
@@ -21,8 +23,8 @@ export type SchedulerOptions = {
   lockCheckInterval?: number;
 };
 
-export type JobOptions<Data> = {
-  schedule?: { interval: number; data: undefined extends Data ? never : Data };
+export type JobOptions<Data = undefined> = {
+  schedule?: undefined extends Data ? { schedule: Schedule } : { schedule: Schedule; data: Data };
   maxParallel?: number;
   retryCount?: number;
   retryDelay?: number;

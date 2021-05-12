@@ -1,5 +1,5 @@
 import { Queue } from 'schummar-queue';
-import { MaybePromise, sleep } from './helpers';
+import { calcNextRun, MaybePromise, sleep } from './helpers';
 import { Scheduler } from './scheduler';
 import { JobDbEntry, JobExecuteOptions, JobOptions } from './types';
 
@@ -21,11 +21,15 @@ export class Job<Data> {
     this.checkLocks();
   }
 
-  async execute(data: Data, { delay = 0 }: JobExecuteOptions = {}): Promise<void> {
+  async execute(
+    ...[data, { delay = 0 } = {}]: undefined extends Data
+      ? [] | [data: Data] | [data: Data, options: JobExecuteOptions]
+      : [data: Data] | [data: Data, options: JobExecuteOptions]
+  ): Promise<void> {
     const col = await this.scheduler.collection;
     await col.insertOne({
       jobId: this.jobId,
-      interval: null,
+      schedule: null,
       data,
       nextRun: new Date(Date.now() + delay),
       lock: null,
@@ -52,14 +56,14 @@ export class Job<Data> {
       {
         $setOnInsert: {
           jobId: this.jobId,
-          data: schedule.data,
-          nextRun: new Date(Date.now() + schedule.interval),
+          data: (schedule as { data?: Data }).data ?? null,
+          nextRun: calcNextRun(schedule.schedule),
           lock: null,
           error: null,
           tryCount: 0,
         },
         $set: {
-          interval: schedule.interval,
+          schedule: schedule.schedule,
         },
       },
       { upsert: true }
@@ -120,12 +124,12 @@ export class Job<Data> {
         try {
           await this.implementation(job.data, job);
 
-          if (job.interval) {
+          if (job.schedule) {
             await col.updateOne(
               { _id: job._id },
               {
                 $set: {
-                  nextRun: new Date(now.getTime() + job.interval),
+                  nextRun: calcNextRun(job.schedule),
                   lock: null,
                   error: null,
                   tryCount: 0,
