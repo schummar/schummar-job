@@ -31,11 +31,11 @@ test.serial('error once', async (t) => {
   await countdown(2, async (count) => {
     const job = scheduler.addJob(
       'job0',
-      (_data, { tryCount, error }) => {
+      (_data, { attempt, error }) => {
         count();
-        if (tryCount === 0) throw Error('testerror');
+        if (attempt === 0) throw Error('testerror');
         t.is(error, 'testerror');
-        t.is(tryCount, 1);
+        t.is(attempt, 1);
       },
       { retryDelay: 0 }
     );

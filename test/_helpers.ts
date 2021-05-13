@@ -13,3 +13,15 @@ export const countdown = (n: number, fn: (count: () => void) => Promise<void>, t
       }
     });
   });
+
+export const noopLogger = {
+  error: (): void => {
+    // ignore
+  },
+  warn: (): void => {
+    // ignore
+  },
+  info: (): void => {
+    // ignore
+  },
+};

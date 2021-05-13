@@ -1,16 +1,18 @@
-import { Queue } from 'schummar-queue';
-import { calcNextRun, sleep } from './helpers';
-import { Scheduler } from './scheduler';
-import { JobDbEntry, JobExecuteOptions, JobImplementation, JobOptions } from './types';
 import assert from 'assert';
+import { Collection } from 'mongodb';
+import { Queue } from 'schummar-queue';
+import { calcNextRun, MaybePromise, sleep } from './helpers';
+import { Scheduler } from './scheduler';
+import { Job, JobDbEntry, JobImplementation, JobOptions } from './types';
 
-export class Job<Data> {
+export class DistributedJob<Data> implements Job<Data> {
   private q: Queue;
   private timeout?: { handle: NodeJS.Timeout; date: Date };
   private hasShutDown = false;
 
   constructor(
     public readonly scheduler: Scheduler,
+    public readonly collection: MaybePromise<Collection<JobDbEntry<any>>>,
     public readonly jobId: string,
     public readonly implementation: JobImplementation<Data> | null,
     public readonly options: JobOptions<Data> = {}
@@ -24,12 +26,8 @@ export class Job<Data> {
     }
   }
 
-  async execute(
-    ...[data, { delay = 0 } = {}]: undefined extends Data
-      ? [] | [data: Data] | [data: Data, options: JobExecuteOptions]
-      : [data: Data] | [data: Data, options: JobExecuteOptions]
-  ): Promise<void> {
-    const col = await this.scheduler.collection;
+  async execute(...[data, { delay = 0 } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
+    const col = await this.collection;
     await col.insertOne({
       jobId: this.jobId,
       schedule: null,
@@ -37,7 +35,7 @@ export class Job<Data> {
       nextRun: new Date(Date.now() + delay),
       lock: null,
       error: null,
-      tryCount: 0,
+      attempt: 0,
     });
   }
 
@@ -55,9 +53,9 @@ export class Job<Data> {
     const { schedule } = this.options;
     if (!schedule) return;
 
-    const col = await this.scheduler.collection;
+    const col = await this.collection;
     await col.updateOne(
-      { jobId: this.jobId, type: 'schedule' },
+      { jobId: this.jobId },
       {
         $setOnInsert: {
           jobId: this.jobId,
@@ -65,7 +63,7 @@ export class Job<Data> {
           nextRun: calcNextRun(schedule),
           lock: null,
           error: null,
-          tryCount: 0,
+          attempt: 0,
         },
         $set: {
           schedule: schedule,
@@ -76,17 +74,18 @@ export class Job<Data> {
   }
 
   private async checkLocks() {
-    const col = await this.scheduler.collection;
+    const col = await this.collection;
     const duration = this.options.lockDuration ?? this.scheduler.options.lockDuration ?? Scheduler.DEFAULT_LOCK_DURATION;
     const interval = this.options.lockCheckInterval ?? this.scheduler.options.lockCheckInterval ?? Scheduler.DEFAULT_LOCK_CHECK_INTERVAL;
+    const log = this.options.log ?? this.scheduler.options.log ?? console;
 
     while (!this.hasShutDown) {
       try {
         const threshold = new Date(Date.now() - duration);
         const res = await col.updateMany({ jobId: this.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
-        if (res.modifiedCount) console.debug('Unlocked jobs:', res.modifiedCount);
+        if (res.modifiedCount) log.info('Unlocked jobs:', res.modifiedCount);
       } catch (e) {
-        console.warn('Failed to check locks:', e);
+        log.warn('Failed to check locks:', e);
       }
 
       await sleep(interval);
@@ -96,6 +95,10 @@ export class Job<Data> {
   private next() {
     if (this.hasShutDown) return;
 
+    const retryCount = this.options.retryCount ?? this.scheduler.options.retryCount ?? Scheduler.DEFAULT_RETRY_COUNT;
+    const retryDelay = this.options.retryDelay ?? this.scheduler.options.retryDelay ?? Scheduler.DEFAULT_RETRY_DELAY;
+    const log = this.options.log ?? this.scheduler.options.log ?? console;
+
     this.q.clear(true);
     this.q.schedule(async () => {
       try {
@@ -104,9 +107,8 @@ export class Job<Data> {
           delete this.timeout;
         }
 
-        const col = await this.scheduler.collection;
-        const retryCount = this.options.retryCount ?? this.scheduler.options.retryCount ?? Scheduler.DEFAULT_RETRY_COUNT;
-        const retryDelay = this.options.retryDelay ?? this.scheduler.options.retryDelay ?? Scheduler.DEFAULT_RETRY_DELAY;
+        const col = await this.collection;
+
         const now = new Date();
 
         const { value: job } = await col.findOneAndUpdate(
@@ -114,7 +116,7 @@ export class Job<Data> {
             jobId: this.jobId,
             nextRun: { $lte: now },
             lock: null,
-            tryCount: { $lte: retryCount },
+            attempt: { $lte: retryCount },
           },
           {
             $set: { lock: now },
@@ -129,7 +131,7 @@ export class Job<Data> {
 
         try {
           assert(this.implementation);
-          await this.implementation(job.data, job);
+          await this.implementation(job.data, { attempt: job.attempt, error: job.error });
 
           if (job.schedule) {
             await col.updateOne(
@@ -139,7 +141,7 @@ export class Job<Data> {
                   nextRun: calcNextRun(job.schedule),
                   lock: null,
                   error: null,
-                  tryCount: 0,
+                  attempt: 0,
                 },
               }
             );
@@ -155,13 +157,13 @@ export class Job<Data> {
                 nextRun: new Date(now.getTime() + retryDelay),
                 lock: null,
                 error: msg,
-                tryCount: job.tryCount + 1,
+                attempt: job.attempt + 1,
               },
             }
           );
         }
       } catch (e) {
-        console.error('next failed', e);
+        log.error('next failed', e);
       }
     });
   }
@@ -169,14 +171,14 @@ export class Job<Data> {
   async checkForNextRun(): Promise<void> {
     if (this.hasShutDown) return;
 
-    const col = await this.scheduler.collection;
+    const col = await this.collection;
     const retryCount = this.options.retryCount ?? this.scheduler.options.retryCount ?? 10;
 
     const [next] = await col
       .find({
         jobId: this.jobId,
         lock: null,
-        tryCount: { $lte: retryCount },
+        attempt: { $lte: retryCount },
       })
       .sort({ nextRun: 1 })
       .limit(1)
