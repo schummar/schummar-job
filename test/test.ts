@@ -1,6 +1,6 @@
 import test from 'ava';
 import { MongoClient } from 'mongodb';
-import { Job, Scheduler } from '../src';
+import { Scheduler } from '../src';
 import { countdown } from './_helpers';
 
 const client = MongoClient.connect('mongodb://localhost', { useUnifiedTopology: true });
@@ -13,12 +13,12 @@ test.before(async () => {
 
 test.afterEach.always(async () => {
   await scheduler.clearDB();
-  scheduler.clearJobs();
+  await scheduler.clearJobs();
 });
 
 test.serial('simple', async (t) => {
   await countdown(1, async (count) => {
-    const job = new Job(scheduler, 'job0', ({ x }: { x: number }) => {
+    const job = scheduler.addJob('job0', ({ x }: { x: number }) => {
       t.is(x, 42);
       count();
     });
@@ -29,8 +29,7 @@ test.serial('simple', async (t) => {
 
 test.serial('error once', async (t) => {
   await countdown(2, async (count) => {
-    const job = new Job(
-      scheduler,
+    const job = scheduler.addJob(
       'job0',
       (_data, { tryCount, error }) => {
         count();
@@ -47,8 +46,7 @@ test.serial('error once', async (t) => {
 
 test.serial('error multiple', async (t) => {
   await countdown(3, async (count) => {
-    const job = new Job(
-      scheduler,
+    const job = scheduler.addJob(
       'job0',
       () => {
         count();
@@ -66,16 +64,15 @@ test.serial('error multiple', async (t) => {
 test.serial('multiple workers', async (t) => {
   await countdown(5, async (count) => {
     const props = [
-      scheduler,
       'job0',
       () => {
         count();
       },
     ] as const;
 
-    const job = new Job(...props);
-    new Job(...props);
-    new Job(...props);
+    const job = scheduler.addJob(...props);
+    scheduler.addJob(...props);
+    scheduler.addJob(...props);
 
     await job.execute();
     await job.execute();
@@ -89,13 +86,12 @@ test.serial('multiple workers', async (t) => {
 
 test.serial('schedule', async (t) => {
   await countdown(2, async (count) => {
-    const job = new Job(
-      scheduler,
+    const job = scheduler.addJob(
       'job0',
       () => {
         count();
       },
-      { schedule: { schedule: 10 } }
+      { schedule: { milliseconds: 10 } }
     );
 
     await job.execute();
@@ -104,17 +100,47 @@ test.serial('schedule', async (t) => {
   t.pass();
 });
 
+test.serial('schedule with data', async (t) => {
+  await countdown(2, async (count) => {
+    const job = scheduler.addJob(
+      'job0',
+      (x: number) => {
+        t.is(x, 42);
+        count();
+      },
+      { schedule: { milliseconds: 10, data: 42 } }
+    );
+
+    await job.execute(42);
+  });
+
+  t.pass();
+});
+
 test.serial('restart', async (t) => {
   await countdown(1, async (count) => {
-    let job = new Job(scheduler, 'job0', () => {
+    const job = scheduler.addJob('job0', () => {
       t.fail();
     });
 
+    await scheduler.shutdown();
     await job.execute(undefined);
-    scheduler.shutdown();
     scheduler = new Scheduler(collection, { lockDuration: 100 });
 
-    job = new Job(scheduler, 'job0', () => {
+    scheduler.addJob('job0', () => {
+      count();
+    });
+  });
+
+  t.pass();
+});
+
+test.serial('null implementation', async (t) => {
+  await countdown(1, async (count) => {
+    const job = scheduler.addJob('job0', null);
+    await job.execute(undefined);
+
+    scheduler.addJob('job0', () => {
       count();
     });
   });

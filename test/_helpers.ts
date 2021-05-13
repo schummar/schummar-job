@@ -1,10 +1,13 @@
 export const countdown = (n: number, fn: (count: () => void) => Promise<void>, timeout = 1000): Promise<void> =>
   new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(`Timeout`), timeout);
+    if (n <= 0) resolve();
+
+    let c = 0;
+    const t = setTimeout(() => reject(`Timeout (${c}/${n})`), timeout);
 
     fn(() => {
-      n--;
-      if (n === 0) {
+      c++;
+      if (c === n) {
         resolve();
         clearTimeout(t);
       }

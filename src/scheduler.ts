@@ -1,7 +1,7 @@
 import { ChangeEvent, ChangeStream, Collection, Cursor, MongoClient } from 'mongodb';
 import { MaybePromise, sleep } from './helpers';
 import { Job } from './job';
-import { DbConnection, JobDbEntry, SchedulerOptions } from './types';
+import { DbConnection, JobDbEntry, JobImplementation, JobOptions, SchedulerOptions } from './types';
 
 export class Scheduler {
   static DEFAULT_LOCK_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -23,10 +23,10 @@ export class Scheduler {
   }
 
   private async watch() {
-    const col = await this.collection;
-    if (this.stream) return;
+    if (this.hasShutDown || this.stream) return;
 
     try {
+      const col = await this.collection;
       this.stream = col.watch(
         [
           {
@@ -50,21 +50,23 @@ export class Scheduler {
         }
       }
     } catch (e) {
+      delete this.stream;
       if (this.hasShutDown) return;
       console.warn('Change stream error:', e);
 
       await sleep(10);
-      delete this.stream;
       this.watch();
     }
   }
 
-  addJob(job: Job<any>): () => void {
-    this.watch();
+  addJob<Data>(jobId: string, implementation: JobImplementation<Data> | null, options?: JobOptions<Data>): Job<Data> {
+    const job = new Job(this, jobId, implementation, options);
     this.jobs.add(job);
-    return () => {
-      this.jobs.delete(job);
-    };
+
+    this.hasShutDown = false;
+    this.watch();
+
+    return job;
   }
 
   async clearDB(): Promise<void> {
@@ -72,16 +74,15 @@ export class Scheduler {
     await col.deleteMany({});
   }
 
-  clearJobs(): void {
-    for (const job of this.jobs) {
-      job.shutdown();
-    }
+  async clearJobs(): Promise<void> {
+    await Promise.all([...this.jobs].map((job) => job.shutdown()));
     this.jobs.clear();
   }
 
-  shutdown(): void {
-    this.clearJobs();
+  async shutdown(): Promise<void> {
     this.hasShutDown = true;
     this.stream?.close();
+
+    await this.clearJobs();
   }
 }

@@ -1,7 +1,13 @@
 import { Collection, ObjectID } from 'mongodb';
 import { MaybePromise } from './helpers';
 
-export type Schedule = string | number;
+export type Schedule =
+  | { milliseconds: number }
+  | { seconds: number }
+  | { minutes: number }
+  | { hours: number }
+  | { days: number }
+  | { cron: string };
 
 export type JobDbEntry<Data> = {
   _id: ObjectID;
@@ -23,8 +29,10 @@ export type SchedulerOptions = {
   lockCheckInterval?: number;
 };
 
+export type JobImplementation<Data> = (data: Data, job: JobDbEntry<Data>) => MaybePromise<void>;
+
 export type JobOptions<Data = undefined> = {
-  schedule?: undefined extends Data ? { schedule: Schedule } : { schedule: Schedule; data: Data };
+  schedule?: undefined extends Data ? Schedule : Schedule & { data: Data };
   maxParallel?: number;
   retryCount?: number;
   retryDelay?: number;

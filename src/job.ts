@@ -1,7 +1,8 @@
 import { Queue } from 'schummar-queue';
-import { calcNextRun, MaybePromise, sleep } from './helpers';
+import { calcNextRun, sleep } from './helpers';
 import { Scheduler } from './scheduler';
-import { JobDbEntry, JobExecuteOptions, JobOptions } from './types';
+import { JobDbEntry, JobExecuteOptions, JobImplementation, JobOptions } from './types';
+import assert from 'assert';
 
 export class Job<Data> {
   private q: Queue;
@@ -11,14 +12,16 @@ export class Job<Data> {
   constructor(
     public readonly scheduler: Scheduler,
     public readonly jobId: string,
-    public readonly implementation: (data: Data, job: JobDbEntry<Data>) => MaybePromise<void>,
+    public readonly implementation: JobImplementation<Data> | null,
     public readonly options: JobOptions<Data> = {}
   ) {
     this.q = new Queue({ parallel: options.maxParallel });
 
-    this.scheduler.addJob(this);
-    this.schedule();
-    this.checkLocks();
+    if (implementation) {
+      this.schedule();
+      this.checkLocks();
+      this.next();
+    }
   }
 
   async execute(
@@ -38,12 +41,14 @@ export class Job<Data> {
     });
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.hasShutDown = true;
     if (this.timeout) {
       clearTimeout(this.timeout.handle);
       delete this.timeout;
     }
+
+    await this.q.last;
   }
 
   private async schedule() {
@@ -57,13 +62,13 @@ export class Job<Data> {
         $setOnInsert: {
           jobId: this.jobId,
           data: (schedule as { data?: Data }).data ?? null,
-          nextRun: calcNextRun(schedule.schedule),
+          nextRun: calcNextRun(schedule),
           lock: null,
           error: null,
           tryCount: 0,
         },
         $set: {
-          schedule: schedule.schedule,
+          schedule: schedule,
         },
       },
       { upsert: true }
@@ -89,10 +94,11 @@ export class Job<Data> {
   }
 
   private next() {
+    if (this.hasShutDown) return;
+
     this.q.clear(true);
     this.q.schedule(async () => {
       try {
-        if (this.hasShutDown) return;
         if (this.timeout) {
           clearTimeout(this.timeout.handle);
           delete this.timeout;
@@ -122,6 +128,7 @@ export class Job<Data> {
         this.next();
 
         try {
+          assert(this.implementation);
           await this.implementation(job.data, job);
 
           if (job.schedule) {
@@ -160,6 +167,8 @@ export class Job<Data> {
   }
 
   async checkForNextRun(): Promise<void> {
+    if (this.hasShutDown) return;
+
     const col = await this.scheduler.collection;
     const retryCount = this.options.retryCount ?? this.scheduler.options.retryCount ?? 10;
 
@@ -177,6 +186,8 @@ export class Job<Data> {
   }
 
   async planNextRun(job: JobDbEntry<Data>): Promise<void> {
+    if (this.hasShutDown) return;
+
     const now = Date.now();
     const date = new Date(Math.min(job.nextRun.getTime(), now + 60 * 60 * 1000));
 
