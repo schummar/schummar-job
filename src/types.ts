@@ -23,26 +23,26 @@ export type JobDbEntry<Data> = {
 export type DbConnection = MaybePromise<Collection<JobDbEntry<any>> | { uri: string; db: string; collection: string }>;
 
 export type SchedulerOptions = {
-  retryCount?: number;
-  retryDelay?: number;
-  lockDuration?: number;
-  lockCheckInterval?: number;
-  log?: { [K in 'error' | 'warn' | 'info']: typeof console[K] };
+  retryCount: number;
+  retryDelay: number;
+  lockDuration: number;
+  lockCheckInterval: number;
+  log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<typeof console['log']>) => void;
 };
 
 export type JobImplementation<Data> = (data: Data, jobInfo: { attempt: number; error?: unknown }) => MaybePromise<void>;
 
 export type LocalJobOptions<Data = undefined> = {
   schedule?: undefined extends Data ? Schedule : Schedule & { data: Data };
-  maxParallel?: number;
-  retryCount?: number;
-  retryDelay?: number;
-  log?: { [K in 'error' | 'warn' | 'info']: typeof console[K] };
+  maxParallel: number;
+  retryCount: number;
+  retryDelay: number;
+  log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<typeof console['log']>) => void;
 };
 
 export type JobOptions<Data = undefined> = LocalJobOptions<Data> & {
-  lockDuration?: number;
-  lockCheckInterval?: number;
+  lockDuration: number;
+  lockCheckInterval: number;
 };
 
 export type JobExecuteOptions = {

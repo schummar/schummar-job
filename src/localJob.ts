@@ -6,15 +6,25 @@ import { Job, JobImplementation, LocalJobOptions } from './types';
 const CANCELED = Symbol('canceled');
 
 export class LocalJob<Data> implements Job<Data> {
+  static DEFAULT_MAX_PARALLEL = 1;
+
   private q: Queue;
   private handles = new Set<() => void>();
   private hasShutDown = false;
+  public readonly options: LocalJobOptions<Data>;
 
   constructor(
     public readonly scheduler: Scheduler,
     public readonly implementation: JobImplementation<Data>,
-    public readonly options: LocalJobOptions<Data> = {}
+    options: Partial<LocalJobOptions<Data>> = {}
   ) {
+    this.options = {
+      maxParallel: LocalJob.DEFAULT_MAX_PARALLEL,
+      retryCount: scheduler.options.retryCount,
+      retryDelay: scheduler.options.retryDelay,
+      log: scheduler.options.log,
+      ...options,
+    };
     this.q = new Queue({ parallel: options.maxParallel });
 
     this.schedule();
@@ -39,10 +49,6 @@ export class LocalJob<Data> implements Job<Data> {
 
   async execute(...[data, { delay = 0 } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
     (async () => {
-      const retryCount = this.options.retryCount ?? this.scheduler.options.retryCount ?? Scheduler.DEFAULT_RETRY_COUNT;
-      const retryDelay = this.options.retryDelay ?? this.scheduler.options.retryDelay ?? Scheduler.DEFAULT_RETRY_DELAY;
-      const log = this.options.log ?? this.scheduler.options.log ?? console;
-
       try {
         await this.sleep(delay);
 
@@ -58,16 +64,16 @@ export class LocalJob<Data> implements Job<Data> {
           });
 
           if (!error || this.hasShutDown) return;
-          if (attempt < retryCount) {
+          if (attempt < this.options.retryCount) {
             attempt++;
-            await this.sleep(retryDelay);
+            await this.sleep(this.options.retryDelay);
           } else {
             throw error;
           }
         }
       } catch (e) {
         if (e !== CANCELED) {
-          log.error('Error in job execution:', e);
+          this.options.log('error', 'Error in job execution:', e);
         }
       }
     })();

@@ -16,8 +16,18 @@ export class Scheduler {
   private localJobs = new Set<LocalJob<any>>();
   private stream?: ChangeStream<JobDbEntry<any>>;
   private hasShutDown = false;
+  public readonly options: SchedulerOptions;
 
-  constructor(collection?: DbConnection, public readonly options: SchedulerOptions = {}) {
+  constructor(collection?: DbConnection, options: Partial<SchedulerOptions> = {}) {
+    this.options = {
+      retryCount: Scheduler.DEFAULT_RETRY_COUNT,
+      retryDelay: Scheduler.DEFAULT_RETRY_DELAY,
+      lockDuration: Scheduler.DEFAULT_LOCK_DURATION,
+      lockCheckInterval: Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
+      log: (level, ...args) => console[level](...args),
+      ...options,
+    };
+
     if (collection && 'uri' in collection) {
       this.collection = MongoClient.connect(collection.uri).then((client) => client.db(collection.db).collection(collection.collection));
     } else {
@@ -56,14 +66,14 @@ export class Scheduler {
     } catch (e) {
       delete this.stream;
       if (this.hasShutDown) return;
-      console.warn('Change stream error:', e);
+      this.options.log('warn', 'Change stream error:', e);
 
       await sleep(10);
       this.watch();
     }
   }
 
-  addJob<Data>(jobId: string, implementation: JobImplementation<Data> | null, options?: JobOptions<Data>): Job<Data> {
+  addJob<Data>(jobId: string, implementation: JobImplementation<Data> | null, options?: Partial<JobOptions<Data>>): Job<Data> {
     if (!this.collection) throw Error('No db set up!');
 
     const job = new DistributedJob(this, this.collection, jobId, implementation, options);
@@ -75,7 +85,7 @@ export class Scheduler {
     return job;
   }
 
-  addLocalJob<Data>(implementation: JobImplementation<Data>, options?: LocalJobOptions<Data>): Job<Data> {
+  addLocalJob<Data>(implementation: JobImplementation<Data>, options?: Partial<LocalJobOptions<Data>>): Job<Data> {
     const job = new LocalJob(this, implementation, options);
     this.localJobs.add(job);
 
