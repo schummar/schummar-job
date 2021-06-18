@@ -39,11 +39,12 @@ export class DistributedJob<Data> implements Job<Data> {
   }
 
   async execute(...[data, { delay = 0 } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
+    const clonedData = data && JSON.parse(JSON.stringify(data));
     const col = await this.collection;
     await col.insertOne({
       jobId: this.jobId,
       schedule: null,
-      data,
+      data: clonedData ?? null,
       nextRun: new Date(Date.now() + delay),
       lock: null,
       error: null,
@@ -63,6 +64,9 @@ export class DistributedJob<Data> implements Job<Data> {
 
   private async schedule() {
     const { schedule } = this.options;
+    const data = schedule && (schedule as { data?: Data }).data;
+    const clonedData = data && JSON.parse(JSON.stringify(data));
+
     if (!schedule) return;
 
     const col = await this.collection;
@@ -71,7 +75,7 @@ export class DistributedJob<Data> implements Job<Data> {
       {
         $setOnInsert: {
           jobId: this.jobId,
-          data: (schedule as { data?: Data }).data ?? null,
+          data: clonedData ?? null,
           nextRun: calcNextRun(schedule),
           lock: null,
           error: null,
