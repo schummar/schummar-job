@@ -3,7 +3,7 @@ import { ChangeEvent, ChangeStream, Collection, Cursor, MongoClient } from 'mong
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
 import { LocalJob } from './localJob';
-import { DbConnection, Job, JobDbEntry, JobImplementation, JobOptions, LocalJobOptions, SchedulerOptions } from './types';
+import { DbConnection, DistributedJobOptions, JobDbEntry, JobImplementation, json, LocalJobOptions, SchedulerOptions } from './types';
 
 export class Scheduler {
   static DEFAULT_LOCK_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -11,10 +11,10 @@ export class Scheduler {
   static DEFAULT_RETRY_COUNT = 10;
   static DEFAULT_RETRY_DELAY = 60 * 1000; // 1 minute
 
-  readonly collection?: MaybePromise<Collection<JobDbEntry<any>>>;
-  private distributedJobs = new Set<DistributedJob<any>>();
-  private localJobs = new Set<LocalJob<any>>();
-  private stream?: ChangeStream<JobDbEntry<any>>;
+  readonly collection?: MaybePromise<Collection<JobDbEntry<any, any>>>;
+  private distributedJobs = new Set<DistributedJob<any, any>>();
+  private localJobs = new Set<LocalJob<any, any>>();
+  private stream?: ChangeStream<JobDbEntry<any, any>>;
   private hasShutDown = false;
   public readonly options: SchedulerOptions;
 
@@ -31,7 +31,7 @@ export class Scheduler {
     if (collection && 'uri' in collection) {
       this.collection = MongoClient.connect(collection.uri).then((client) => client.db(collection.db).collection(collection.collection));
     } else {
-      this.collection = collection as MaybePromise<Collection<JobDbEntry<any>>> | undefined;
+      this.collection = collection as MaybePromise<Collection<JobDbEntry<any, any>>> | undefined;
     }
   }
 
@@ -53,12 +53,12 @@ export class Scheduler {
       // When starting watching or after connection loss, force refresh
       for (const job of this.distributedJobs) job.checkForNextRun();
 
-      const cursor = this.stream.stream() as Cursor<ChangeEvent<JobDbEntry<any>>>;
+      const cursor = this.stream.stream() as Cursor<ChangeEvent<JobDbEntry<any, any>>>;
       for await (const change of cursor) {
         if ('fullDocument' in change && change.fullDocument) {
           for (const job of this.distributedJobs) {
             if (job.jobId === change.fullDocument.jobId) {
-              job.planNextRun(change.fullDocument);
+              job.receiveUpdate(change.fullDocument);
             }
           }
         }
@@ -73,7 +73,11 @@ export class Scheduler {
     }
   }
 
-  addJob<Data>(jobId: string, implementation: JobImplementation<Data> | null, options?: Partial<JobOptions<Data>>): Job<Data> {
+  addJob<Data extends json, Result extends json | void>(
+    jobId: string,
+    implementation: JobImplementation<Data, Result> | null,
+    options?: Partial<DistributedJobOptions<Data>>
+  ): DistributedJob<Data, Result> {
     if (!this.collection) throw Error('No db set up!');
 
     const job = new DistributedJob(this, this.collection, jobId, implementation, options);
@@ -85,7 +89,10 @@ export class Scheduler {
     return job;
   }
 
-  addLocalJob<Data>(implementation: JobImplementation<Data>, options?: Partial<LocalJobOptions<Data>>): Job<Data> {
+  addLocalJob<Data, Result>(
+    implementation: JobImplementation<Data, Result>,
+    options?: Partial<LocalJobOptions<Data>>
+  ): LocalJob<Data, Result> {
     const job = new LocalJob(this, implementation, options);
     this.localJobs.add(job);
 

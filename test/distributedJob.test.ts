@@ -34,6 +34,7 @@ test.serial('error once', async (t) => {
       'job0',
       (_data, { attempt, error }) => {
         count();
+
         if (attempt === 0) throw Error('testerror');
         t.is(error, 'testerror');
         t.is(attempt, 1);
@@ -125,7 +126,7 @@ test.serial('restart', async (t) => {
     });
 
     await scheduler.shutdown();
-    await job.execute(undefined);
+    await job.execute();
     scheduler = new Scheduler(collection, { lockDuration: 100 });
 
     scheduler.addJob('job0', () => {
@@ -139,7 +140,7 @@ test.serial('restart', async (t) => {
 test.serial('null implementation', async (t) => {
   await countdown(1, async (count) => {
     const job = scheduler.addJob('job0', null);
-    await job.execute(undefined);
+    await job.execute();
 
     scheduler.addJob('job0', () => {
       count();
@@ -151,19 +152,20 @@ test.serial('null implementation', async (t) => {
 
 test.serial('executionId', async (t) => {
   await countdown(
-    2,
+    1,
     async (count) => {
-      const job = scheduler.addJob('job0', count);
+      const job = scheduler.addJob('job0', () => {
+        count();
+        return 42;
+      });
 
-      await job.execute(undefined, { executionId: 'foo' });
-      await job.execute(undefined, { executionId: 'foo' });
+      await job.execute(null, { executionId: 'foo' });
+      await job.execute(null, { executionId: 'foo' });
 
       await sleep(500);
-      await job.execute(undefined, { executionId: 'foo' });
+      t.is(await job.executeAndAwait(null, { executionId: 'foo' }), 42);
     },
     1000,
     true
   );
-
-  t.pass();
 });

@@ -1,6 +1,8 @@
 import { Collection, ObjectID } from 'mongodb';
 import { MaybePromise } from './helpers';
 
+export type json = string | number | boolean | Date | null | json[] | { [id: string]: json };
+
 export type Schedule =
   | { milliseconds: number }
   | { seconds: number }
@@ -9,18 +11,26 @@ export type Schedule =
   | { days: number }
   | { cron: string };
 
-export type JobDbEntry<Data> = {
+export type JobDbEntry<Data, Result> = {
   _id: ObjectID;
   jobId: string;
+  executionId: string | null;
   schedule: Schedule | null;
   data: Data;
   nextRun: Date;
+  completedOn: Date | null;
   lock: Date | null;
-  error: string | null;
   attempt: number;
+  history:
+    | {
+        t: Date;
+        error: string | null;
+        result: Result | null;
+      }[]
+    | null;
 };
 
-export type DbConnection = MaybePromise<Collection<JobDbEntry<any>> | { uri: string; db: string; collection: string }>;
+export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any>> | { uri: string; db: string; collection: string }>;
 
 export type SchedulerOptions = {
   retryCount: number;
@@ -30,31 +40,26 @@ export type SchedulerOptions = {
   log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<typeof console['log']>) => void;
 };
 
-export type JobImplementation<Data> = (data: Data, jobInfo: { attempt: number; error?: unknown }) => MaybePromise<void>;
+export type JobImplementation<Data, Result> = (
+  data: Data,
+  lastRun: { result: Result | null; error?: unknown; attempt: number },
+  jobInfo?: JobDbEntry<Data, Result>
+) => MaybePromise<Result>;
 
-export type LocalJobOptions<Data = undefined> = {
-  schedule?: undefined extends Data ? Schedule : Schedule & { data: Data };
+export type LocalJobOptions<Data> = {
+  schedule?: null extends Data ? Schedule : Schedule & { data: Data };
   maxParallel: number;
   retryCount: number;
   retryDelay: number;
   log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<typeof console['log']>) => void;
 };
 
-export type JobOptions<Data = undefined> = LocalJobOptions<Data> & {
+export type DistributedJobOptions<Data extends json> = LocalJobOptions<Data> & {
   lockDuration: number;
   lockCheckInterval: number;
 };
 
 export type JobExecuteOptions = {
   delay?: number;
-  executionId?: string | number;
-};
-
-export type Job<Data> = {
-  execute(
-    ...args: undefined extends Data
-      ? [] | [data: undefined] | [data: undefined, options: JobExecuteOptions]
-      : [data: Data] | [data: Data, options: JobExecuteOptions]
-  ): Promise<void>;
-  shutdown(): Promise<void>;
+  executionId?: string;
 };

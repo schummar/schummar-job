@@ -1,6 +1,5 @@
 import test from 'ava';
 import { Scheduler } from '../src';
-import { sleep } from '../src/helpers';
 import { countdown, noopLogger } from './_helpers';
 
 const scheduler = new Scheduler(undefined, { log: noopLogger });
@@ -21,6 +20,7 @@ test('error once', async (t) => {
     const job = scheduler.addLocalJob(
       (_data, { attempt, error }) => {
         count();
+
         if (attempt === 0) throw 'testerror';
         t.is(error, 'testerror');
         t.is(attempt, 1);
@@ -42,7 +42,9 @@ test('error multiple', async (t) => {
       { retryDelay: 0, retryCount: 2 }
     );
 
-    await job.execute();
+    await job.execute().catch(() => {
+      // ignore
+    });
   });
 
   t.pass();
@@ -85,11 +87,11 @@ test.serial('executionId', async (t) => {
     async (count) => {
       const job = scheduler.addLocalJob(count);
 
-      const j0 = job.execute(undefined, { executionId: 'foo' });
-      const j1 = job.execute(undefined, { executionId: 'foo' });
+      const j0 = job.execute(null, { executionId: 'foo' });
+      const j1 = job.execute(null, { executionId: 'foo' });
 
       await Promise.all([j0, j1]);
-      await job.execute(undefined, { executionId: 'foo' });
+      await job.execute(null, { executionId: 'foo' });
     },
     1000,
     true
