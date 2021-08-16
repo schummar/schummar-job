@@ -1,5 +1,6 @@
 import test from 'ava';
 import { Scheduler } from '../src';
+import { sleep } from '../src/helpers';
 import { countdown, noopLogger } from './_helpers';
 
 const scheduler = new Scheduler(undefined, { log: noopLogger });
@@ -74,6 +75,25 @@ test('schedule with data', async (t) => {
 
     await job.execute(42);
   });
+
+  t.pass();
+});
+
+test.serial('executionId', async (t) => {
+  await countdown(
+    2,
+    async (count) => {
+      const job = scheduler.addLocalJob(count);
+
+      const j0 = job.execute(undefined, { executionId: 'foo' });
+      const j1 = job.execute(undefined, { executionId: 'foo' });
+
+      await Promise.all([j0, j1]);
+      await job.execute(undefined, { executionId: 'foo' });
+    },
+    1000,
+    true
+  );
 
   t.pass();
 });

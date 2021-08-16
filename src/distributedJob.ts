@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { Collection } from 'mongodb';
+import { nanoid } from 'nanoid';
 import { Queue } from 'schummar-queue';
 import { calcNextRun, MaybePromise, sleep } from './helpers';
 import { Scheduler } from './scheduler';
@@ -38,18 +39,27 @@ export class DistributedJob<Data> implements Job<Data> {
     }
   }
 
-  async execute(...[data, { delay = 0 } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
+  async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
     const clonedData = data && JSON.parse(JSON.stringify(data));
     const col = await this.collection;
-    await col.insertOne({
-      jobId: this.jobId,
-      schedule: null,
-      data: clonedData ?? null,
-      nextRun: new Date(Date.now() + delay),
-      lock: null,
-      error: null,
-      attempt: 0,
-    });
+    await col.updateOne(
+      {
+        jobId: this.jobId,
+        executionId,
+      },
+      {
+        $setOnInsert: {
+          jobId: this.jobId,
+          schedule: null,
+          data: clonedData ?? null,
+          nextRun: new Date(Date.now() + delay),
+          lock: null,
+          error: null,
+          attempt: 0,
+        },
+      },
+      { upsert: true }
+    );
   }
 
   async shutdown(): Promise<void> {

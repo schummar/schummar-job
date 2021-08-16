@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { Queue } from 'schummar-queue';
 import { Scheduler } from '.';
 import { calcNextRun } from './helpers';
@@ -11,6 +12,7 @@ export class LocalJob<Data> implements Job<Data> {
   private q: Queue;
   private handles = new Set<() => void>();
   private hasShutDown = false;
+  private executionIds = new Set<string | number>();
   public readonly options: LocalJobOptions<Data>;
 
   constructor(
@@ -47,9 +49,11 @@ export class LocalJob<Data> implements Job<Data> {
     }
   }
 
-  async execute(...[data, { delay = 0 } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
+  async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: Parameters<Job<Data>['execute']>): Promise<void> {
     (async () => {
       try {
+        if (this.executionIds.has(executionId)) return;
+        this.executionIds.add(executionId);
         await this.sleep(delay);
 
         let attempt = 0,
@@ -75,6 +79,8 @@ export class LocalJob<Data> implements Job<Data> {
         if (e !== CANCELED) {
           this.options.log('error', 'Error in job execution:', e);
         }
+      } finally {
+        this.executionIds.delete(executionId);
       }
     })();
   }

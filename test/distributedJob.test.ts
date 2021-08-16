@@ -1,6 +1,7 @@
 import test from 'ava';
 import { MongoClient } from 'mongodb';
 import { Scheduler } from '../src';
+import { sleep } from '../src/helpers';
 import { countdown } from './_helpers';
 
 const client = MongoClient.connect('mongodb://localhost', { useUnifiedTopology: true });
@@ -144,6 +145,25 @@ test.serial('null implementation', async (t) => {
       count();
     });
   });
+
+  t.pass();
+});
+
+test.serial('executionId', async (t) => {
+  await countdown(
+    2,
+    async (count) => {
+      const job = scheduler.addJob('job0', count);
+
+      await job.execute(undefined, { executionId: 'foo' });
+      await job.execute(undefined, { executionId: 'foo' });
+
+      await sleep(500);
+      await job.execute(undefined, { executionId: 'foo' });
+    },
+    1000,
+    true
+  );
 
   t.pass();
 });

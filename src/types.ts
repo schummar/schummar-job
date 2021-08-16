@@ -47,6 +47,7 @@ export type JobOptions<Data = undefined> = LocalJobOptions<Data> & {
 
 export type JobExecuteOptions = {
   delay?: number;
+  executionId?: string | number;
 };
 
 export type Job<Data> = {
