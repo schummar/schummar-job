@@ -153,7 +153,7 @@ export class DistributedJob<Data extends json, Result extends json | void> {
   }
 
   private next() {
-    if (this.hasShutDown) return;
+    if (this.hasShutDown || !this.implementation) return;
 
     this.q.clear(true);
     this.q.schedule(async () => {
@@ -236,7 +236,7 @@ export class DistributedJob<Data extends json, Result extends json | void> {
   }
 
   async checkForNextRun(): Promise<void> {
-    if (this.hasShutDown) return;
+    if (this.hasShutDown || !this.implementation) return;
 
     const col = await this.collection;
 
@@ -267,7 +267,7 @@ export class DistributedJob<Data extends json, Result extends json | void> {
   }
 
   async planNextRun(job: JobDbEntry<Data, Result>): Promise<void> {
-    if (this.hasShutDown) return;
+    if (this.hasShutDown || !this.implementation) return;
 
     const now = Date.now();
     const date = new Date(Math.min(job.nextRun.getTime(), now + 60 * 60 * 1000));
