@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { ChangeEvent, ChangeStream, Collection, Cursor, MongoClient } from 'mongodb';
+import { ChangeStream, Collection, MongoClient } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
 import { LocalJob } from './localJob';
@@ -53,7 +53,7 @@ export class Scheduler {
       // When starting watching or after connection loss, force refresh
       for (const job of this.distributedJobs) job.checkForNextRun();
 
-      const cursor = this.stream.stream() as Cursor<ChangeEvent<JobDbEntry<any, any>>>;
+      const cursor = this.stream.stream();
       for await (const change of cursor) {
         if ('fullDocument' in change && change.fullDocument) {
           for (const job of this.distributedJobs) {

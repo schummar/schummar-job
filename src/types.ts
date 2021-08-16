@@ -1,4 +1,4 @@
-import { Collection, ObjectID } from 'mongodb';
+import { Collection, ObjectId } from 'mongodb';
 import { MaybePromise } from './helpers';
 
 export type json = string | number | boolean | Date | null | json[] | { [id: string]: json };
@@ -12,7 +12,7 @@ export type Schedule =
   | { cron: string };
 
 export type JobDbEntry<Data, Result> = {
-  _id: ObjectID;
+  _id: ObjectId;
   jobId: string;
   executionId: string | null;
   schedule: Schedule | null;

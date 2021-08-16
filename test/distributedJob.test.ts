@@ -1,11 +1,11 @@
 import test from 'ava';
 import { MongoClient } from 'mongodb';
-import { Scheduler } from '../src';
+import { JobDbEntry, Scheduler } from '../src';
 import { sleep } from '../src/helpers';
 import { countdown } from './_helpers';
 
-const client = MongoClient.connect('mongodb://localhost', { useUnifiedTopology: true });
-const collection = client.then((client) => client.db('dev').collection('jobs'));
+const client = MongoClient.connect('mongodb://localhost');
+const collection = client.then((client) => client.db('dev').collection<JobDbEntry<any, any>>('jobs'));
 let scheduler = new Scheduler(collection, { lockDuration: 100 });
 
 test.before(async () => {
