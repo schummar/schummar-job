@@ -62,9 +62,11 @@ export class Scheduler {
         { fullDocument: 'updateLookup' }
       );
 
-      // When starting watching or after connection loss, force refresh
-      for (const job of this.distributedJobs) job.checkForNextRun();
+      this.stream.once('resumeTokenChanged', () => {
+        for (const job of this.distributedJobs) job.changeStreamReconnected();
+      });
 
+      // When starting watching or after connection loss, force refresh
       const cursor = this.stream.stream();
       for await (const change of cursor) {
         if ('fullDocument' in change && change.fullDocument) {

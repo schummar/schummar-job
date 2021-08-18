@@ -13,7 +13,7 @@ export class DistributedJob<Data extends json, Result extends json | void, Progr
   private timeout?: { handle: NodeJS.Timeout; date: Date };
   private hasShutDown = false;
   private subscribedExecutionIds = new Array<{
-    executionId: string | number;
+    executionId: string;
     listener: (job: JobDbEntry<Data, Result, Progress>) => void;
   }>();
   public readonly options: DistributedJobOptions<Data>;
@@ -297,6 +297,17 @@ export class DistributedJob<Data extends json, Result extends json | void, Progr
 
     if (job.state === 'planned') {
       return this.planNextRun(job);
+    }
+  }
+
+  async changeStreamReconnected(): Promise<void> {
+    this.checkForNextRun();
+
+    const executionIds = new Set(this.subscribedExecutionIds.map((x) => x.executionId));
+    const col = await this.collection;
+    const cursor = col.find<JobDbEntry<Data, Result, Progress>>({ jobId: this.jobId, executionId: { $in: [...executionIds] } });
+    for await (const job of cursor) {
+      await this.receiveUpdate(job);
     }
   }
 
