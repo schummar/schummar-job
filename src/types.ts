@@ -1,8 +1,6 @@
 import { Collection, ObjectId } from 'mongodb';
 import { MaybePromise } from './helpers';
 
-export type json = string | number | boolean | Date | null | json[] | { [id: string]: json };
-
 export type Schedule =
   | { milliseconds: number }
   | { seconds: number }
@@ -60,7 +58,7 @@ export type LocalJobOptions<Data> = {
   log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<typeof console['log']>) => void;
 };
 
-export type DistributedJobOptions<Data extends json> = LocalJobOptions<Data> & {
+export type DistributedJobOptions<Data> = LocalJobOptions<Data> & {
   lockDuration: number;
   lockCheckInterval: number;
 };

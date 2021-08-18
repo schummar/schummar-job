@@ -8,7 +8,6 @@ import {
   DistributedJobImplementation,
   DistributedJobOptions,
   JobDbEntry,
-  json,
   LocalJobImplementation,
   LocalJobOptions,
   SchedulerOptions,
@@ -87,7 +86,7 @@ export class Scheduler {
     }
   }
 
-  addJob<Data extends json, Result extends json | void, Progress extends json = number>(
+  addJob<Data, Result, Progress = number>(
     jobId: string,
     implementation: DistributedJobImplementation<Data, Result, Progress> | null = null,
     options?: Partial<DistributedJobOptions<Data>>

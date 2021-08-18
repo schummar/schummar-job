@@ -4,9 +4,9 @@ import { nanoid } from 'nanoid';
 import { Queue } from 'schummar-queue';
 import { calcNextRun, MaybePromise, sleep } from './helpers';
 import { Scheduler } from './scheduler';
-import { DistributedJobImplementation, DistributedJobOptions, JobDbEntry, JobExecuteOptions, json } from './types';
+import { DistributedJobImplementation, DistributedJobOptions, JobDbEntry, JobExecuteOptions } from './types';
 
-export class DistributedJob<Data extends json, Result extends json | void, Progress extends json> {
+export class DistributedJob<Data, Result, Progress> {
   static DEFAULT_MAX_PARALLEL = 1;
 
   private q: Queue;
