@@ -102,7 +102,7 @@ test('schedule', async (t) => {
     { schedule: { milliseconds: 10 } }
   );
 
-  await poll(() => count === 2);
+  await poll(() => count >= 2);
   t.pass();
 });
 
@@ -118,7 +118,7 @@ test('schedule with data', async (t) => {
     { schedule: { milliseconds: 10, data: 42 } }
   );
 
-  await poll(() => count === 2);
+  await poll(() => count >= 2);
   t.pass();
 });
 
