@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.2.1](https://www.github.com/schummar/schummar-job/compare/v0.2.0...v0.2.1) (2021-08-18)
+
+
+### Bug Fixes
+
+* removed json constraint. ([2503a4b](https://www.github.com/schummar/schummar-job/commit/2503a4b4b71b272b98ae3d6b6ac52f0be14cfad8))
+
 ## [0.2.0](https://www.github.com/schummar/schummar-job/compare/v0.1.0...v0.2.0) (2021-08-18)
 
 
