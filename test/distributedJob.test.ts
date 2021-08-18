@@ -1,171 +1,190 @@
-import test from 'ava';
+import anyTest, { TestInterface } from 'ava';
 import { MongoClient } from 'mongodb';
-import { JobDbEntry, Scheduler } from '../src';
-import { sleep } from '../src/helpers';
-import { countdown } from './_helpers';
+import { Scheduler } from '../src';
+import { poll } from './_helpers';
 
-const client = MongoClient.connect('mongodb://localhost');
-const collection = client.then((client) => client.db('dev').collection<JobDbEntry<any, any>>('jobs'));
-let scheduler = new Scheduler(collection, { lockDuration: 100 });
+const test = anyTest as TestInterface<Scheduler>;
 
-test.before(async () => {
-  await scheduler.clearDB();
+const client = MongoClient.connect('mongodb://localhost', { directConnection: true });
+const db = client.then((client) => client.db('schummar-job-tests'));
+
+test.beforeEach(async (t) => {
+  t.context = new Scheduler((await db).collection(t.title), { lockDuration: 100 });
+  await t.context.clearDB();
 });
 
-test.afterEach.always(async () => {
-  await scheduler.clearDB();
-  await scheduler.clearJobs();
+test.afterEach.always(async (t) => {
+  await t.context.shutdown();
+  await t.context.clearDB();
 });
 
-test.serial('simple', async (t) => {
-  await countdown(1, async (count) => {
-    const job = scheduler.addJob('job0', ({ x }: { x: number }) => {
-      t.is(x, 42);
-      count();
-    });
+test('simple', async (t) => {
+  t.plan(1);
 
-    await job.execute({ x: 42 });
+  const job = t.context.addJob('job0', ({ x }: { x: number }) => {
+    t.is(x, 42);
   });
+
+  await job.executeAndAwait({ x: 42 });
 });
 
-test.serial('error once', async (t) => {
-  await countdown(2, async (count) => {
-    const job = scheduler.addJob(
-      'job0',
-      (_data, { attempt, error }) => {
-        count();
-
-        if (attempt === 0) throw Error('testerror');
-        t.is(error, 'testerror');
-        t.is(attempt, 1);
-      },
-      { retryDelay: 0 }
-    );
-
-    await job.execute();
+test('return value', async (t) => {
+  const job = t.context.addJob('job0', ({ x }: { x: number }) => {
+    t.is(x, 42);
+    return x + 1;
   });
+
+  t.is(await job.executeAndAwait({ x: 42 }), 43);
 });
 
-test.serial('error multiple', async (t) => {
-  await countdown(3, async (count) => {
-    const job = scheduler.addJob(
-      'job0',
-      () => {
-        count();
+test('error once', async (t) => {
+  t.plan(2);
+
+  const job = t.context.addJob(
+    'job0',
+    (_data, { job }) => {
+      if (job.attempt === 0) {
+        t.pass();
         throw Error('testerror');
-      },
-      { retryDelay: 0, retryCount: 2 }
-    );
-
-    await job.execute();
-  });
-
-  t.pass();
-});
-
-test.serial('multiple workers', async (t) => {
-  await countdown(5, async (count) => {
-    const props = [
-      'job0',
-      () => {
-        count();
-      },
-    ] as const;
-
-    const job = scheduler.addJob(...props);
-    scheduler.addJob(...props);
-    scheduler.addJob(...props);
-
-    await job.execute();
-    await job.execute();
-    await job.execute();
-    await job.execute();
-    await job.execute();
-  });
-
-  t.pass();
-});
-
-test.serial('schedule', async (t) => {
-  await countdown(2, async (count) => {
-    const job = scheduler.addJob(
-      'job0',
-      () => {
-        count();
-      },
-      { schedule: { milliseconds: 10 } }
-    );
-
-    await job.execute();
-  });
-
-  t.pass();
-});
-
-test.serial('schedule with data', async (t) => {
-  await countdown(2, async (count) => {
-    const job = scheduler.addJob(
-      'job0',
-      (x: number) => {
-        t.is(x, 42);
-        count();
-      },
-      { schedule: { milliseconds: 10, data: 42 } }
-    );
-
-    await job.execute(42);
-  });
-
-  t.pass();
-});
-
-test.serial('restart', async (t) => {
-  await countdown(1, async (count) => {
-    const job = scheduler.addJob('job0', () => {
-      t.fail();
-    });
-
-    await scheduler.shutdown();
-    await job.execute();
-    scheduler = new Scheduler(collection, { lockDuration: 100 });
-
-    scheduler.addJob('job0', () => {
-      count();
-    });
-  });
-
-  t.pass();
-});
-
-test.serial('null implementation', async (t) => {
-  await countdown(1, async (count) => {
-    const job = scheduler.addJob('job0', null);
-    await job.execute();
-
-    scheduler.addJob('job0', () => {
-      count();
-    });
-  });
-
-  t.pass();
-});
-
-test.serial('executionId', async (t) => {
-  await countdown(
-    1,
-    async (count) => {
-      const job = scheduler.addJob('job0', () => {
-        count();
-        return 42;
-      });
-
-      await job.execute(null, { executionId: 'foo' });
-      await job.execute(null, { executionId: 'foo' });
-
-      await sleep(500);
-      t.is(await job.executeAndAwait(null, { executionId: 'foo' }), 42);
+      }
+      t.is(job.attempt, 1);
     },
-    1000,
-    true
+    { retryDelay: 0 }
   );
+
+  await job.executeAndAwait();
+});
+
+test('error multiple', async (t) => {
+  t.plan(4);
+
+  const job = t.context.addJob(
+    'job0',
+    () => {
+      t.pass();
+      throw Error('testerror');
+    },
+    { retryDelay: 0, retryCount: 2 }
+  );
+
+  await t.throwsAsync(() => job.executeAndAwait());
+});
+
+test('multiple workers', async (t) => {
+  t.plan(5);
+
+  const props = [
+    'job0',
+    () => {
+      t.pass();
+    },
+  ] as const;
+
+  const job = t.context.addJob(...props);
+  t.context.addJob(...props);
+  t.context.addJob(...props);
+
+  await Promise.all(
+    Array(5)
+      .fill(0)
+      .map(() => job.executeAndAwait())
+  );
+});
+
+test('schedule', async (t) => {
+  let count = 0;
+
+  t.context.addJob(
+    'job0',
+    () => {
+      count++;
+    },
+    { schedule: { milliseconds: 10 } }
+  );
+
+  await poll(() => count === 2);
+  t.pass();
+});
+
+test('schedule with data', async (t) => {
+  let count = 0;
+
+  t.context.addJob(
+    'job0',
+    (x: number) => {
+      t.is(x, 42);
+      count++;
+    },
+    { schedule: { milliseconds: 10, data: 42 } }
+  );
+
+  await poll(() => count === 2);
+  t.pass();
+});
+
+test('restart', async (t) => {
+  t.plan(1);
+
+  const job = t.context.addJob('job0', () => {
+    t.fail();
+  });
+
+  await t.context.shutdown();
+  const id = await job.execute();
+
+  t.context = new Scheduler((await db).collection(t.title), { lockDuration: 100 });
+  t.context.addJob('job0', () => {
+    t.pass();
+  });
+
+  await job.await(id);
+});
+
+test('null implementation', async (t) => {
+  t.plan(1);
+
+  const job = t.context.addJob('job0');
+  const id = await job.execute();
+
+  t.context.addJob('job0', () => {
+    t.pass();
+  });
+  await job.await(id);
+});
+
+test('executionId', async (t) => {
+  const job = t.context.addJob('job0', () => {
+    return 42;
+  });
+
+  await job.execute(null, { executionId: 'foo' });
+  await job.execute(null, { executionId: 'foo' });
+
+  t.is(await job.executeAndAwait(null, { executionId: 'foo' }), 42);
+});
+
+test('progress', async (t) => {
+  let progress = 0;
+
+  const job = t.context.addJob('job0', async (_data, { setProgress }) => {
+    await setProgress(0.3);
+    await poll(() => progress === 0.3);
+    await setProgress(0.6);
+    await poll(() => progress === 0.6);
+  });
+
+  const id = await job.execute();
+  job.onProgress(id, (p) => {
+    progress = p;
+  });
+  await poll(() => progress === 1);
+  t.pass();
+});
+
+test('getPlanned', async (t) => {
+  const job = t.context.addJob('job0');
+  await job.execute();
+
+  const planned = await job.getPlanned();
+  t.is(planned.length, 1);
 });

@@ -3,7 +3,16 @@ import { ChangeStream, Collection, MongoClient } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
 import { LocalJob } from './localJob';
-import { DbConnection, DistributedJobOptions, JobDbEntry, JobImplementation, json, LocalJobOptions, SchedulerOptions } from './types';
+import {
+  DbConnection,
+  DistributedJobImplementation,
+  DistributedJobOptions,
+  JobDbEntry,
+  json,
+  LocalJobImplementation,
+  LocalJobOptions,
+  SchedulerOptions,
+} from './types';
 
 export class Scheduler {
   static DEFAULT_LOCK_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -11,27 +20,30 @@ export class Scheduler {
   static DEFAULT_RETRY_COUNT = 10;
   static DEFAULT_RETRY_DELAY = 60 * 1000; // 1 minute
 
-  readonly collection?: MaybePromise<Collection<JobDbEntry<any, any>>>;
-  private distributedJobs = new Set<DistributedJob<any, any>>();
+  readonly collection?: MaybePromise<Collection<JobDbEntry<any, any, any>>>;
+  private distributedJobs = new Set<DistributedJob<any, any, any>>();
   private localJobs = new Set<LocalJob<any, any>>();
-  private stream?: ChangeStream<JobDbEntry<any, any>>;
+  private stream?: ChangeStream<JobDbEntry<any, any, any>>;
   private hasShutDown = false;
   public readonly options: SchedulerOptions;
 
-  constructor(collection?: DbConnection, options: Partial<SchedulerOptions> = {}) {
-    this.options = {
-      retryCount: Scheduler.DEFAULT_RETRY_COUNT,
-      retryDelay: Scheduler.DEFAULT_RETRY_DELAY,
-      lockDuration: Scheduler.DEFAULT_LOCK_DURATION,
-      lockCheckInterval: Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
-      log: (level, ...args) => console[level](...args),
-      ...options,
-    };
+  constructor(
+    collection?: DbConnection,
+    {
+      retryCount = Scheduler.DEFAULT_RETRY_COUNT,
+      retryDelay = Scheduler.DEFAULT_RETRY_DELAY,
+      lockDuration = Scheduler.DEFAULT_LOCK_DURATION,
+      lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
+      log = (level, ...args) => console[level](...args),
+      ...otherOptions
+    }: Partial<SchedulerOptions> = {}
+  ) {
+    this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, ...otherOptions };
 
     if (collection && 'uri' in collection) {
       this.collection = MongoClient.connect(collection.uri).then((client) => client.db(collection.db).collection(collection.collection));
     } else {
-      this.collection = collection as MaybePromise<Collection<JobDbEntry<any, any>>> | undefined;
+      this.collection = collection as MaybePromise<Collection<JobDbEntry<any, any, any>>> | undefined;
     }
   }
 
@@ -73,11 +85,11 @@ export class Scheduler {
     }
   }
 
-  addJob<Data extends json, Result extends json | void>(
+  addJob<Data extends json, Result extends json | void, Progress extends json = number>(
     jobId: string,
-    implementation: JobImplementation<Data, Result> | null,
+    implementation: DistributedJobImplementation<Data, Result, Progress> | null = null,
     options?: Partial<DistributedJobOptions<Data>>
-  ): DistributedJob<Data, Result> {
+  ): DistributedJob<Data, Result, Progress> {
     if (!this.collection) throw Error('No db set up!');
 
     const job = new DistributedJob(this, this.collection, jobId, implementation, options);
@@ -90,7 +102,7 @@ export class Scheduler {
   }
 
   addLocalJob<Data, Result>(
-    implementation: JobImplementation<Data, Result>,
+    implementation: LocalJobImplementation<Data, Result>,
     options?: Partial<LocalJobOptions<Data>>
   ): LocalJob<Data, Result> {
     const job = new LocalJob(this, implementation, options);

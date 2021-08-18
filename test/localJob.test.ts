@@ -1,101 +1,104 @@
-import test from 'ava';
+import anyTest, { TestInterface } from 'ava';
 import { Scheduler } from '../src';
-import { countdown, noopLogger } from './_helpers';
+import { noopLogger, poll } from './_helpers';
 
-const scheduler = new Scheduler(undefined, { log: noopLogger });
+const test = anyTest as TestInterface<Scheduler>;
+
+test.beforeEach((t) => {
+  t.context = new Scheduler(undefined, { log: noopLogger });
+});
+
+test.afterEach.always(async (t) => {
+  await t.context.clearJobs();
+});
 
 test('simple', async (t) => {
-  await countdown(1, async (count) => {
-    const job = scheduler.addLocalJob(({ x }: { x: number }) => {
-      t.is(x, 42);
-      count();
-    });
+  t.plan(1);
 
-    await job.execute({ x: 42 });
+  const job = t.context.addLocalJob(({ x }: { x: number }) => {
+    t.is(x, 42);
   });
+
+  await job.execute({ x: 42 });
+});
+
+test('return value', async (t) => {
+  t.plan(2);
+
+  const job = t.context.addLocalJob(({ x }: { x: number }) => {
+    t.is(x, 42);
+    return x + 1;
+  });
+
+  t.is(await job.execute({ x: 42 }), 43);
 });
 
 test('error once', async (t) => {
-  await countdown(2, async (count) => {
-    const job = scheduler.addLocalJob(
-      (_data, { attempt, error }) => {
-        count();
+  const job = t.context.addLocalJob(
+    (_data, { attempt, error }) => {
+      if (attempt === 0) throw 'testerror';
+      t.is(error, 'testerror');
+      t.is(attempt, 1);
+    },
+    { retryDelay: 0 }
+  );
 
-        if (attempt === 0) throw 'testerror';
-        t.is(error, 'testerror');
-        t.is(attempt, 1);
-      },
-      { retryDelay: 0 }
-    );
-
-    await job.execute();
-  });
+  await job.execute();
 });
 
 test('error multiple', async (t) => {
-  await countdown(3, async (count) => {
-    const job = scheduler.addLocalJob(
-      () => {
-        count();
-        throw Error('testerror');
-      },
-      { retryDelay: 0, retryCount: 2 }
-    );
+  t.plan(4);
 
-    await job.execute().catch(() => {
-      // ignore
-    });
-  });
+  const job = t.context.addLocalJob(
+    () => {
+      t.pass();
+      throw Error('testerror');
+    },
+    { retryDelay: 0, retryCount: 2 }
+  );
 
-  t.pass();
+  await t.throwsAsync(() => job.execute());
 });
 
 test('schedule', async (t) => {
-  await countdown(2, async (count) => {
-    const job = scheduler.addLocalJob(
-      () => {
-        count();
-      },
-      { schedule: { milliseconds: 10 } }
-    );
+  let count = 0;
 
-    await job.execute();
-  });
+  t.context.addLocalJob(
+    () => {
+      count++;
+    },
+    { schedule: { milliseconds: 10 } }
+  );
 
+  await poll(() => count === 2);
   t.pass();
 });
 
 test('schedule with data', async (t) => {
-  await countdown(2, async (count) => {
-    const job = scheduler.addLocalJob(
-      (x: number) => {
-        t.is(x, 42);
-        count();
-      },
-      { schedule: { milliseconds: 10, data: 42 } }
-    );
+  let count = 0;
 
-    await job.execute(42);
-  });
+  t.context.addLocalJob(
+    (x: number) => {
+      t.is(x, 42);
+      count++;
+    },
+    { schedule: { milliseconds: 10, data: 42 } }
+  );
 
+  await poll(() => count === 2);
   t.pass();
 });
 
 test.serial('executionId', async (t) => {
-  await countdown(
-    2,
-    async (count) => {
-      const job = scheduler.addLocalJob(count);
+  t.plan(2);
 
-      const j0 = job.execute(null, { executionId: 'foo' });
-      const j1 = job.execute(null, { executionId: 'foo' });
+  const job = t.context.addLocalJob(() => {
+    t.pass();
+  });
 
-      await Promise.all([j0, j1]);
-      await job.execute(null, { executionId: 'foo' });
-    },
-    1000,
-    true
-  );
+  const j0 = job.execute(null, { executionId: 'foo' });
+  const j1 = job.execute(null, { executionId: 'foo' });
 
-  t.pass();
+  await Promise.all([j0, j1]);
+  await job.execute(null, { executionId: 'foo' });
 });

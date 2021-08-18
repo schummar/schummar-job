@@ -11,26 +11,22 @@ export type Schedule =
   | { days: number }
   | { cron: string };
 
-export type JobDbEntry<Data, Result> = {
+export type JobDbEntry<Data, Result, Progress> = {
   _id: ObjectId;
   jobId: string;
-  executionId: string | null;
-  schedule: Schedule | null;
-  data: Data;
-  nextRun: Date;
-  completedOn: Date | null;
-  lock: Date | null;
-  attempt: number;
-  history:
-    | {
-        t: Date;
-        error: string | null;
-        result: Result | null;
-      }[]
-    | null;
-};
+  executionId: string;
 
-export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any>> | { uri: string; db: string; collection: string }>;
+  schedule: Schedule | null;
+  nextRun: Date;
+  lock: Date | null;
+  finishedOn: Date | null;
+  attempt: number;
+
+  data: Data;
+  progress: Progress;
+} & ({ state: 'planned' } | { state: 'completed'; result: Result } | { state: 'error'; error: string });
+
+export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any, any>> | { uri: string; db: string; collection: string }>;
 
 export type SchedulerOptions = {
   retryCount: number;
@@ -40,10 +36,20 @@ export type SchedulerOptions = {
   log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<typeof console['log']>) => void;
 };
 
-export type JobImplementation<Data, Result> = (
+export type LocalJobImplementation<Data, Result> = (
   data: Data,
-  lastRun: { result: Result | null; error?: unknown; attempt: number },
-  jobInfo?: JobDbEntry<Data, Result>
+  helpers: {
+    attempt: number;
+    error: unknown;
+  }
+) => MaybePromise<Result>;
+
+export type DistributedJobImplementation<Data, Result, Progress> = (
+  data: Data,
+  helpers: {
+    job: JobDbEntry<Data, never, Progress>;
+    setProgress: (progress: Progress) => Promise<void>;
+  }
 ) => MaybePromise<Result>;
 
 export type LocalJobOptions<Data> = {

@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 import { Queue } from 'schummar-queue';
 import { Scheduler } from '.';
 import { calcNextRun } from './helpers';
-import { JobExecuteOptions, JobImplementation, LocalJobOptions } from './types';
+import { JobExecuteOptions, LocalJobImplementation, LocalJobOptions } from './types';
 
 const CANCELED = Symbol('canceled');
 
@@ -17,16 +17,16 @@ export class LocalJob<Data, Result> {
 
   constructor(
     public readonly scheduler: Scheduler,
-    public readonly implementation: JobImplementation<Data, Result>,
-    options: Partial<LocalJobOptions<Data>> = {}
+    public readonly implementation: LocalJobImplementation<Data, Result>,
+    {
+      maxParallel = LocalJob.DEFAULT_MAX_PARALLEL,
+      retryCount = scheduler.options.retryCount,
+      retryDelay = scheduler.options.retryDelay,
+      log = scheduler.options.log,
+      ...otherOptions
+    }: Partial<LocalJobOptions<Data>> = {}
   ) {
-    this.options = {
-      maxParallel: LocalJob.DEFAULT_MAX_PARALLEL,
-      retryCount: scheduler.options.retryCount,
-      retryDelay: scheduler.options.retryDelay,
-      log: scheduler.options.log,
-      ...options,
-    };
+    this.options = { maxParallel, retryCount, retryDelay, log, ...otherOptions };
     this.q = new Queue({ parallel: this.options.maxParallel });
 
     this.schedule();
@@ -65,7 +65,7 @@ export class LocalJob<Data, Result> {
           error: unknown;
         while (!this.hasShutDown) {
           try {
-            return await this.q.schedule(() => this.implementation(data as Data, { result: null, error, attempt }));
+            return await this.q.schedule(() => this.implementation(data as Data, { error, attempt }));
           } catch (e) {
             error = e;
             if (!this.hasShutDown && attempt < this.options.retryCount) {
@@ -93,6 +93,7 @@ export class LocalJob<Data, Result> {
   }
 
   async shutdown(): Promise<void> {
+    this.hasShutDown = true;
     for (const handle of this.handles) {
       handle();
     }
