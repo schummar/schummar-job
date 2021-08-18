@@ -132,12 +132,12 @@ test('restart', async (t) => {
   await t.context.shutdown();
   const id = await job.execute();
 
-  t.context = new Scheduler((await db).collection(t.title), { lockDuration: 100 });
-  t.context.addJob('job0', () => {
+  const newScheduler = new Scheduler(t.context.collection, { lockDuration: 100 });
+  const newJob = newScheduler.addJob('job0', () => {
     t.pass();
   });
 
-  await job.await(id);
+  await newJob.await(id);
 });
 
 test('null implementation', async (t) => {
