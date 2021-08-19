@@ -171,6 +171,8 @@ test('progress', async (t) => {
     await poll(() => progress === 0.3);
     await setProgress(0.6);
     await poll(() => progress === 0.6);
+    await setProgress(1);
+    await poll(() => progress === 1);
   });
 
   const id = await job.execute();
