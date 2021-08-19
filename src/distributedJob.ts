@@ -218,10 +218,12 @@ export class DistributedJob<Data, Result, Progress> {
         assert(job.state === 'planned');
 
         try {
+          const q = new Queue();
           const result = await this.implementation(job.data, {
             job,
-            setProgress: (progress) => this.setProgress(job, progress),
+            setProgress: (progress) => q.schedule(() => this.setProgress(job, progress)),
           });
+          await q.untilEmpty;
 
           if (job.schedule) {
             await this.schedule(job);
@@ -265,15 +267,7 @@ export class DistributedJob<Data, Result, Progress> {
 
   private async setProgress(job: JobDbEntry<Data, Result, Progress>, progress: Progress) {
     const col = await this.collection;
-    await col.updateOne(
-      { _id: job._id },
-      {
-        $set: {
-          lock: new Date(),
-          progress,
-        },
-      }
-    );
+    await col.updateOne({ _id: job._id }, { $set: { lock: new Date(), progress } });
   }
 
   async checkForNextRun(): Promise<void> {
