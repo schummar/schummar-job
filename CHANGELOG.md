@@ -1,5 +1,13 @@
 # Changelog
 
+### [0.2.2](https://www.github.com/schummar/schummar-job/compare/v0.2.1...v0.2.2) (2021-08-19)
+
+
+### Bug Fixes
+
+* don't clone job data ([d4be62a](https://www.github.com/schummar/schummar-job/commit/d4be62a11016f955fe838015a569fa295f226b46))
+* schedule new tasks only in the future. ([a89ad54](https://www.github.com/schummar/schummar-job/commit/a89ad540622a70c6cd2c6e78c6789cc7ed9c7223))
+
 ### [0.2.1](https://www.github.com/schummar/schummar-job/compare/v0.2.0...v0.2.1) (2021-08-18)
 
 
