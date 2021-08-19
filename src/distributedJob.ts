@@ -48,7 +48,6 @@ export class DistributedJob<Data, Result, Progress> {
       ? [data?: null, options?: JobExecuteOptions]
       : [data: Data, options?: JobExecuteOptions]
   ): Promise<string> {
-    const clonedData = data && JSON.parse(JSON.stringify(data));
     const col = await this.collection;
     await col.updateOne(
       {
@@ -66,7 +65,7 @@ export class DistributedJob<Data, Result, Progress> {
           finished: null,
           attempt: 0,
 
-          data: clonedData ?? null,
+          data: data ?? null,
           progress: 0,
           state: 'planned',
         },
@@ -129,7 +128,6 @@ export class DistributedJob<Data, Result, Progress> {
   private async schedule(lastJob?: JobDbEntry<Data, Result, Progress>) {
     const { schedule } = this.options;
     const data = schedule && (schedule as { data?: Data }).data;
-    const clonedData = data && JSON.parse(JSON.stringify(data));
 
     if (!schedule) return;
 
@@ -152,7 +150,7 @@ export class DistributedJob<Data, Result, Progress> {
           finishedOn: null,
           attempt: 0,
 
-          data: clonedData ?? null,
+          data: data ?? null,
           progress: 0,
           state: 'planned',
         },
