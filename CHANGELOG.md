@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.2.5](https://www.github.com/schummar/schummar-job/compare/v0.2.4...v0.2.5) (2021-08-19)
+
+
+### Bug Fixes
+
+* make sure setProgress call are in order. ([002a2ff](https://www.github.com/schummar/schummar-job/commit/002a2ff974043528c2c03714f84d0e329e798514))
+
 ### [0.2.4](https://www.github.com/schummar/schummar-job/compare/v0.2.3...v0.2.4) (2021-08-19)
 
 
