@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.2.3](https://www.github.com/schummar/schummar-job/compare/v0.2.2...v0.2.3) (2021-08-19)
+
+
+### Bug Fixes
+
+* emit initial onProgress ([e5cd903](https://www.github.com/schummar/schummar-job/commit/e5cd903ec976e12002b6f487836dc34c9ece57ed))
+
 ### [0.2.2](https://www.github.com/schummar/schummar-job/compare/v0.2.1...v0.2.2) (2021-08-19)
 
 
