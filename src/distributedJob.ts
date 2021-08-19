@@ -233,9 +233,9 @@ export class DistributedJob<Data, Result, Progress> {
               $set: {
                 lock: null,
                 finishedOn: new Date(),
-                progress: 1,
                 state: 'completed',
                 result,
+                errror: null,
               },
             }
           );
