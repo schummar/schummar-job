@@ -112,6 +112,12 @@ export class DistributedJob<Data, Result, Progress> {
 
     this.subscribedExecutionIds.push({ executionId, listener });
 
+    (async () => {
+      const col = await this.collection;
+      const existing = await col.findOne({ jobId: this.jobId, executionId });
+      if (existing) listener(existing);
+    })();
+
     return cancel;
   }
 
