@@ -1,5 +1,13 @@
 # Changelog
 
+### [0.2.4](https://www.github.com/schummar/schummar-job/compare/v0.2.3...v0.2.4) (2021-08-19)
+
+
+### Bug Fixes
+
+* broken test ([6c1bfa2](https://www.github.com/schummar/schummar-job/commit/6c1bfa229e7ea8ac4d011032ba370e4bfbd16d8a))
+* don't set progress when finished ([80b394c](https://www.github.com/schummar/schummar-job/commit/80b394c77b6e01386f0f09bcc29e2eb39fb9824f))
+
 ### [0.2.3](https://www.github.com/schummar/schummar-job/compare/v0.2.2...v0.2.3) (2021-08-19)
 
 
