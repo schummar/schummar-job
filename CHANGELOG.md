@@ -1,5 +1,13 @@
 # Changelog
 
+### [0.2.6](https://www.github.com/schummar/schummar-job/compare/v0.2.5...v0.2.6) (2021-12-18)
+
+
+### Bug Fixes
+
+* updated dependencies ([d98ff12](https://www.github.com/schummar/schummar-job/commit/d98ff125d82261b06aec251877bb2631b5af5615))
+* updated dependencies ([2a5c197](https://www.github.com/schummar/schummar-job/commit/2a5c197c42c42188e16b9e6f5cecc51a5938bc67))
+
 ### [0.2.5](https://www.github.com/schummar/schummar-job/compare/v0.2.4...v0.2.5) (2021-08-19)
 
 
