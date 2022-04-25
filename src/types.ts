@@ -21,7 +21,7 @@ export type JobDbEntry<Data, Result, Progress> = {
   attempt: number;
 
   data: Data;
-  progress: Progress;
+  progress?: Progress;
 } & ({ state: 'planned' } | { state: 'completed'; result: Result } | { state: 'error'; error: string });
 
 export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any, any>> | { uri: string; db: string; collection: string }>;

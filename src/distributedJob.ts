@@ -102,7 +102,7 @@ export class DistributedJob<Data, Result, Progress> {
   onProgress(executionId: string, callback: (progress: Progress) => void): () => void {
     let lastValue: unknown;
     const listener = (job: JobDbEntry<Data, Result, Progress>) => {
-      if (job.progress !== lastValue) callback(job.progress);
+      if (job.progress && job.progress !== lastValue) callback(job.progress);
       lastValue = job.progress;
 
       if (job.state === 'completed' || job.state === 'error') cancel();
