@@ -121,6 +121,25 @@ export class DistributedJob<Data, Result, Progress> {
     return cancel;
   }
 
+  watch(executionId: string, callback: (job: JobDbEntry<Data, Result, Progress>) => void): () => void {
+    const listener = (job: JobDbEntry<Data, Result, Progress>) => {
+      callback(job);
+      if (job.state === 'completed' || job.state === 'error') cancel();
+    };
+
+    const cancel = () => (this.subscribedExecutionIds = this.subscribedExecutionIds.filter((x) => x.listener !== listener));
+
+    this.subscribedExecutionIds.push({ executionId, listener });
+
+    (async () => {
+      const col = await this.collection;
+      const existing = await col.findOne({ jobId: this.jobId, executionId });
+      if (existing) listener(existing);
+    })();
+
+    return cancel;
+  }
+
   async shutdown(): Promise<void> {
     this.hasShutDown = true;
     if (this.timeout) {

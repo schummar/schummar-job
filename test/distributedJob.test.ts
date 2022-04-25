@@ -1,6 +1,7 @@
 import anyTest, { TestInterface } from 'ava';
 import { MongoClient } from 'mongodb';
-import { Scheduler } from '../src';
+import { JobDbEntry, Scheduler } from '../src';
+import { DistributedJob } from '../src/distributedJob';
 import { poll } from './_helpers';
 
 const test = anyTest as TestInterface<Scheduler>;
@@ -181,6 +182,21 @@ test('progress', async (t) => {
   });
   await poll(() => progress === 1);
   t.pass();
+});
+
+test('watch', async (t) => {
+  const invocations: any[] = [];
+
+  const job = t.context.addJob('job0', async () => {
+    return 1;
+  });
+
+  const id = await job.execute();
+  job.watch(id, (j) => {
+    invocations.push(j.state);
+  });
+  await job.await(id);
+  t.deepEqual(invocations, ['planned', 'planned', 'completed']);
 });
 
 test('getPlanned', async (t) => {
