@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://www.github.com/schummar/schummar-job/compare/v0.2.6...v0.3.0) (2022-04-25)
+
+
+### Features
+
+* added watch function ([2c372bc](https://www.github.com/schummar/schummar-job/commit/2c372bc013194ce5860d3a759884ea3771bec2df))
+
 ### [0.2.6](https://www.github.com/schummar/schummar-job/compare/v0.2.5...v0.2.6) (2021-12-18)
 
 
