@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.3.1](https://www.github.com/schummar/schummar-job/compare/v0.3.0...v0.3.1) (2022-04-25)
+
+
+### Bug Fixes
+
+* progress type ([710080c](https://www.github.com/schummar/schummar-job/commit/710080cd900551c8605a837ab9c4d876f5045d50))
+
 ## [0.3.0](https://www.github.com/schummar/schummar-job/compare/v0.2.6...v0.3.0) (2022-04-25)
 
 
