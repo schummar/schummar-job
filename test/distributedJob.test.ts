@@ -1,7 +1,6 @@
 import anyTest, { TestInterface } from 'ava';
 import { MongoClient } from 'mongodb';
-import { JobDbEntry, Scheduler } from '../src';
-import { DistributedJob } from '../src/distributedJob';
+import { Scheduler } from '../src';
 import { poll } from './_helpers';
 
 const test = anyTest as TestInterface<Scheduler>;
@@ -192,11 +191,15 @@ test('watch', async (t) => {
   });
 
   const id = await job.execute();
+  let last: any;
   job.watch(id, (j) => {
-    invocations.push(j.state);
+    if (j.state !== last) {
+      invocations.push(j.state);
+      last = j.state;
+    }
   });
   await job.await(id);
-  t.deepEqual(invocations, ['planned', 'planned', 'completed']);
+  t.deepEqual(invocations, ['planned', 'completed']);
 });
 
 test('getPlanned', async (t) => {
