@@ -52,8 +52,7 @@ export class Scheduler {
   }
 
   private async watch() {
-    if (this.hasShutDown || this.stream) {
-      this.options.log('info', `Stopping db watcher because ${this.hasShutDown ? 'shutdown' : 'already runs'}`);
+    if (this.hasShutDown) {
       return;
     }
 
@@ -61,6 +60,10 @@ export class Scheduler {
       const col = await this.collection;
       if (!col) {
         throw new Error('No db set up!');
+      }
+
+      if (this.hasShutDown || this.stream) {
+        return;
       }
 
       this.options.log('debug', 'start db watcher');
