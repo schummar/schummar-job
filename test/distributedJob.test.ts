@@ -9,7 +9,7 @@ const client = MongoClient.connect('mongodb://localhost', { directConnection: tr
 const db = client.then((client) => client.db('schummar-job-tests'));
 
 test.beforeEach(async (t) => {
-  t.context = new Scheduler((await db).collection(t.title), { lockDuration: 100 });
+  t.context = new Scheduler((await db).collection(t.title), { lockDuration: 100, log: () => undefined });
   await t.context.clearDB();
 });
 

@@ -1,4 +1,3 @@
-import assert from 'assert';
 import { ChangeStream, Collection, MongoClient } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
@@ -12,6 +11,12 @@ import {
   LocalJobOptions,
   SchedulerOptions,
 } from './types';
+
+const defaultLogger: SchedulerOptions['log'] = (level, ...args) => {
+  if (level === 'error' || level === 'warn') {
+    console[level](...args);
+  }
+};
 
 export class Scheduler {
   static DEFAULT_LOCK_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -33,7 +38,7 @@ export class Scheduler {
       retryDelay = Scheduler.DEFAULT_RETRY_DELAY,
       lockDuration = Scheduler.DEFAULT_LOCK_DURATION,
       lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
-      log = (level, ...args) => console[level](...args),
+      log = defaultLogger,
       ...otherOptions
     }: Partial<SchedulerOptions> = {}
   ) {
@@ -47,11 +52,18 @@ export class Scheduler {
   }
 
   private async watch() {
-    if (this.hasShutDown || this.stream) return;
+    if (this.hasShutDown || this.stream) {
+      this.options.log('info', `Stopping db watcher because ${this.hasShutDown ? 'shutdown' : 'already runs'}`);
+      return;
+    }
 
     try {
       const col = await this.collection;
-      assert(col);
+      if (!col) {
+        throw new Error('No db set up!');
+      }
+
+      this.options.log('debug', 'start db watcher');
       this.stream = col.watch(
         [
           {
@@ -62,12 +74,18 @@ export class Scheduler {
       );
 
       this.stream.once('resumeTokenChanged', () => {
+        this.options.log('debug', 'db watcher first token');
         for (const job of this.distributedJobs) job.changeStreamReconnected();
       });
 
       // When starting watching or after connection loss, force refresh
       const cursor = this.stream.stream();
       for await (const change of cursor) {
+        this.options.log(
+          'debug',
+          'db watcher change received',
+          'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument.executionId}` : undefined
+        );
         if ('fullDocument' in change && change.fullDocument) {
           for (const job of this.distributedJobs) {
             if (job.jobId === change.fullDocument.jobId) {

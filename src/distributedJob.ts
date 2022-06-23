@@ -226,6 +226,7 @@ export class DistributedJob<Data, Result, Progress> {
             $set: { lock: now },
           }
         );
+        this.options.log('debug', 'find next', job?.executionId);
 
         if (!job) {
           this.checkForNextRun();
@@ -238,11 +239,13 @@ export class DistributedJob<Data, Result, Progress> {
 
         try {
           const q = new Queue();
+          this.options.log('debug', 'execute next', job?.executionId);
           const result = await this.implementation(job.data, {
             job,
             setProgress: (progress) => q.schedule(() => this.setProgress(job, progress)),
           });
           await q.untilEmpty;
+          this.options.log('debug', 'execute next done', job?.executionId);
 
           if (job.schedule) {
             await this.schedule(job);
@@ -277,6 +280,8 @@ export class DistributedJob<Data, Result, Progress> {
               },
             }
           );
+
+          throw e;
         }
       } catch (e) {
         this.options.log('error', 'next failed', e);
@@ -335,6 +340,7 @@ export class DistributedJob<Data, Result, Progress> {
     const date = new Date(Math.min(job.nextRun.getTime(), now + 60 * 60 * 1000));
 
     if (!this.timeout || date.getTime() < this.timeout.date.getTime()) {
+      this.options.log('debug', 'plan next run', date.toISOString());
       if (this.timeout) clearTimeout(this.timeout.handle);
       this.timeout = {
         handle: setTimeout(() => this.next(), date.getTime() - now),
