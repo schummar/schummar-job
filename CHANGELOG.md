@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.4.2](https://www.github.com/schummar/schummar-job/compare/v0.4.1...v0.4.2) (2022-06-23)
+
+
+### Bug Fixes
+
+* added labels to logs ([7e155e9](https://www.github.com/schummar/schummar-job/commit/7e155e9b9334c0130a07836b6be57a94a1457b76))
+
 ### [0.4.1](https://www.github.com/schummar/schummar-job/compare/v0.4.0...v0.4.1) (2022-06-23)
 
 
