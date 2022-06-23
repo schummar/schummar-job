@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://www.github.com/schummar/schummar-job/compare/v0.3.1...v0.4.0) (2022-06-23)
+
+
+### Features
+
+* Added more logging ([6b3bcc7](https://www.github.com/schummar/schummar-job/commit/6b3bcc7aaec665fd7ec43af5a1f6c3cfc384cc75))
+
 ### [0.3.1](https://www.github.com/schummar/schummar-job/compare/v0.3.0...v0.3.1) (2022-04-25)
 
 
