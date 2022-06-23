@@ -29,6 +29,7 @@ export class Scheduler {
   private localJobs = new Set<LocalJob<any, any>>();
   private stream?: ChangeStream<JobDbEntry<any, any, any>>;
   private hasShutDown = false;
+  private label = `[schummar-job]`;
   public readonly options: SchedulerOptions;
 
   constructor(
@@ -66,7 +67,7 @@ export class Scheduler {
         return;
       }
 
-      this.options.log('debug', 'start db watcher');
+      this.options.log('debug', this.label, 'start db watcher');
       this.stream = col.watch(
         [
           {
@@ -77,7 +78,7 @@ export class Scheduler {
       );
 
       this.stream.once('resumeTokenChanged', () => {
-        this.options.log('debug', 'db watcher first token');
+        this.options.log('debug', this.label, 'db watcher first token');
         for (const job of this.distributedJobs) job.changeStreamReconnected();
       });
 
@@ -86,6 +87,7 @@ export class Scheduler {
       for await (const change of cursor) {
         this.options.log(
           'debug',
+          this.label,
           'db watcher change received',
           'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument.executionId}` : undefined
         );
@@ -100,7 +102,7 @@ export class Scheduler {
     } catch (e) {
       delete this.stream;
       if (this.hasShutDown) return;
-      this.options.log('warn', 'Change stream error:', e);
+      this.options.log('warn', this.label, 'Change stream error:', e);
 
       await sleep(10);
       this.watch();
