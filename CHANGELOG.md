@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.4.1](https://www.github.com/schummar/schummar-job/compare/v0.4.0...v0.4.1) (2022-06-23)
+
+
+### Bug Fixes
+
+* don't start multiple db watchers ([9004544](https://www.github.com/schummar/schummar-job/commit/900454434cdbd77c85d824a564e67c94ee143281))
+
 ## [0.4.0](https://www.github.com/schummar/schummar-job/compare/v0.3.1...v0.4.0) (2022-06-23)
 
 
