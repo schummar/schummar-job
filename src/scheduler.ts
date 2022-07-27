@@ -140,12 +140,16 @@ export class Scheduler {
 
     const col = await this.collection;
     await col.deleteMany({});
+
+    this.options.log('info', this.label, 'cleared db');
   }
 
   async clearJobs(): Promise<void> {
     await Promise.all([...this.distributedJobs, ...this.localJobs].map((job) => job.shutdown()));
     this.distributedJobs.clear();
     this.localJobs.clear();
+
+    this.options.log('info', this.label, 'cleared jobs');
   }
 
   async shutdown(): Promise<void> {
@@ -153,5 +157,7 @@ export class Scheduler {
     this.stream?.close();
 
     await this.clearJobs();
+
+    this.options.log('info', this.label, 'shut down');
   }
 }

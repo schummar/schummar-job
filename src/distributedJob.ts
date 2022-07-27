@@ -49,6 +49,8 @@ export class DistributedJob<Data, Result, Progress> {
       ? [data?: null, options?: JobExecuteOptions]
       : [data: Data, options?: JobExecuteOptions]
   ): Promise<string> {
+    this.options.log('debug', this.label, 'schedule for execution', this.jobId);
+
     const col = await this.collection;
     await col.updateOne(
       {
@@ -73,6 +75,8 @@ export class DistributedJob<Data, Result, Progress> {
       },
       { upsert: true }
     );
+
+    this.options.log('debug', this.label, 'successfully scheduled for execution', executionId);
 
     return executionId;
   }
@@ -142,6 +146,8 @@ export class DistributedJob<Data, Result, Progress> {
   }
 
   async shutdown(): Promise<void> {
+    this.options.log('info', this.label, 'shutting down');
+
     this.hasShutDown = true;
     if (this.timeout) {
       clearTimeout(this.timeout.handle);
@@ -293,6 +299,8 @@ export class DistributedJob<Data, Result, Progress> {
   private async setProgress(job: JobDbEntry<Data, Result, Progress>, progress: Progress) {
     const col = await this.collection;
     await col.updateOne({ _id: job._id }, { $set: { lock: new Date(), progress } });
+
+    this.options.log('debug', this.label, 'updated progress', job.executionId, JSON.stringify(progress));
   }
 
   async checkForNextRun(): Promise<void> {
