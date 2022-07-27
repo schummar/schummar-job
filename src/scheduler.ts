@@ -53,7 +53,7 @@ export class Scheduler {
   }
 
   private async watch() {
-    if (this.hasShutDown) {
+    if (this.hasShutDown || this.stream) {
       return;
     }
 
@@ -105,12 +105,12 @@ export class Scheduler {
       if (!this.hasShutDown) {
         await sleep(10);
       }
-    } finally {
-      delete this.stream;
+    }
 
-      if (!this.hasShutDown) {
-        this.watch();
-      }
+    delete this.stream;
+
+    if (!this.hasShutDown) {
+      this.watch();
     }
   }
 
