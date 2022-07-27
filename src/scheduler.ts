@@ -100,12 +100,17 @@ export class Scheduler {
         }
       }
     } catch (e) {
-      delete this.stream;
-      if (this.hasShutDown) return;
       this.options.log('warn', this.label, 'Change stream error:', e);
 
-      await sleep(10);
-      this.watch();
+      if (!this.hasShutDown) {
+        await sleep(10);
+      }
+    } finally {
+      delete this.stream;
+
+      if (!this.hasShutDown) {
+        this.watch();
+      }
     }
   }
 

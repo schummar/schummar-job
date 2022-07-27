@@ -65,7 +65,7 @@ export class DistributedJob<Data, Result, Progress> {
           schedule: null,
           nextRun: new Date(Date.now() + delay),
           lock: null,
-          finished: null,
+          finishedOn: null,
           attempt: 0,
 
           data: data ?? null,
@@ -266,7 +266,7 @@ export class DistributedJob<Data, Result, Progress> {
                 finishedOn: new Date(),
                 state: 'completed',
                 result,
-                errror: null,
+                error: null,
               },
             }
           );
