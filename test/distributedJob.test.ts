@@ -1,7 +1,9 @@
 import anyTest, { TestInterface } from 'ava';
 import { MongoClient } from 'mongodb';
 import { Scheduler } from '../src';
+import { sleep } from '../src/helpers';
 import { poll } from './_helpers';
+import { deepEqual } from 'fast-equals';
 
 const test = anyTest as TestInterface<Scheduler>;
 
@@ -184,10 +186,16 @@ test('progress', async (t) => {
 });
 
 test('watch', async (t) => {
-  const invocations: any[] = [];
+  const invocations = new Array<string>();
+
+  let resolve: (() => void) | undefined,
+    firstWatch = false;
 
   const job = t.context.addJob('job0', async () => {
-    return 1;
+    if (firstWatch) return;
+    return new Promise<void>((r) => {
+      resolve = r;
+    });
   });
 
   const id = await job.execute();
@@ -196,10 +204,13 @@ test('watch', async (t) => {
     if (j.state !== last) {
       invocations.push(j.state);
       last = j.state;
+      firstWatch = true;
+      resolve?.();
     }
   });
-  await job.await(id);
-  t.deepEqual(invocations, ['planned', 'completed']);
+
+  await poll(() => deepEqual(invocations, ['planned', 'completed']));
+  t.pass();
 });
 
 test('getPlanned', async (t) => {

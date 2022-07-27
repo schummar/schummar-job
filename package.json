@@ -33,6 +33,7 @@
     "@typescript-eslint/eslint-plugin": "^5.31.0",
     "ava": "^3.15.0",
     "eslint": "^8.20.0",
+    "fast-equals": "^4.0.1",
     "mongodb": "^4.8.1",
     "npm-run-all": "^4.1.5",
     "nyc": "^15.1.0",
