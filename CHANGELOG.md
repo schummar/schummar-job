@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.4.5](https://www.github.com/schummar/schummar-job/compare/v0.4.4...v0.4.5) (2022-07-27)
+
+
+### Bug Fixes
+
+* don't watch multiple times ([c8261b0](https://www.github.com/schummar/schummar-job/commit/c8261b072847c3aed90cfb87975c80c26b99cb04))
+
 ### [0.4.4](https://www.github.com/schummar/schummar-job/compare/v0.4.3...v0.4.4) (2022-07-27)
 
 
