@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.4.4](https://www.github.com/schummar/schummar-job/compare/v0.4.3...v0.4.4) (2022-07-27)
+
+
+### Bug Fixes
+
+* properly recover from db restart ([6528923](https://www.github.com/schummar/schummar-job/commit/652892319ada88acb305076d3dce17179bd4e9a2))
+
 ### [0.4.3](https://www.github.com/schummar/schummar-job/compare/v0.4.2...v0.4.3) (2022-07-27)
 
 
