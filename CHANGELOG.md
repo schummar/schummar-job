@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.4.6](https://www.github.com/schummar/schummar-job/compare/v0.4.5...v0.4.6) (2023-10-20)
+
+
+### Bug Fixes
+
+* update mongodb version ([0525586](https://www.github.com/schummar/schummar-job/commit/05255867b4abec5e5f7ac08d9d68e14b4dfb6c27))
+
 ### [0.4.5](https://www.github.com/schummar/schummar-job/compare/v0.4.4...v0.4.5) (2022-07-27)
 
 
