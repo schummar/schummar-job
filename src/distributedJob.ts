@@ -222,7 +222,7 @@ export class DistributedJob<Data, Result, Progress> {
 
         const now = new Date();
 
-        const { value: job } = await col.findOneAndUpdate(
+        const job = await col.findOneAndUpdate(
           {
             jobId: this.jobId,
             state: 'planned',

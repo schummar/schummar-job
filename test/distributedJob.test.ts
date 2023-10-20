@@ -1,7 +1,6 @@
 import anyTest, { TestInterface } from 'ava';
 import { MongoClient } from 'mongodb';
 import { Scheduler } from '../src';
-import { sleep } from '../src/helpers';
 import { poll } from './_helpers';
 import { deepEqual } from 'fast-equals';
 
