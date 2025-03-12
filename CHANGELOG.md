@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.5.1](https://www.github.com/schummar/schummar-job/compare/v0.5.0...v0.5.1) (2025-03-12)
+
+
+### Bug Fixes
+
+* corrected exports ([6e0aa4c](https://www.github.com/schummar/schummar-job/commit/6e0aa4c96ad20ae403b9b51fddfca83e0b192183))
+
 ## [0.5.0](https://www.github.com/schummar/schummar-job/compare/v0.4.6...v0.5.0) (2025-03-12)
 
 
