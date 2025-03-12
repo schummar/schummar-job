@@ -41,7 +41,7 @@ export class Scheduler {
       lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
       log = defaultLogger,
       ...otherOptions
-    }: Partial<SchedulerOptions> = {}
+    }: Partial<SchedulerOptions> = {},
   ) {
     this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, ...otherOptions };
 
@@ -74,7 +74,7 @@ export class Scheduler {
             $match: { operationType: { $in: ['insert', 'replace', 'update'] } },
           },
         ],
-        { fullDocument: 'updateLookup' }
+        { fullDocument: 'updateLookup' },
       );
 
       this.stream.once('resumeTokenChanged', () => {
@@ -89,7 +89,7 @@ export class Scheduler {
           'debug',
           this.label,
           'db watcher change received',
-          'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument.executionId}` : undefined
+          'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument.executionId}` : undefined,
         );
         if ('fullDocument' in change && change.fullDocument) {
           for (const job of this.distributedJobs) {
@@ -116,8 +116,8 @@ export class Scheduler {
 
   addJob<Data, Result, Progress = number>(
     jobId: string,
-    implementation: DistributedJobImplementation<Data, Result, Progress> | null = null,
-    options?: Partial<DistributedJobOptions<Data>>
+    implementation?: DistributedJobImplementation<Data, Result, Progress>,
+    options?: Partial<DistributedJobOptions<Data>>,
   ): DistributedJob<Data, Result, Progress> {
     if (!this.collection) throw Error('No db set up!');
 
@@ -130,9 +130,9 @@ export class Scheduler {
     return job;
   }
 
-  addLocalJob<Data, Result>(
+  addLocalJob<Data = undefined, Result = void>(
     implementation: LocalJobImplementation<Data, Result>,
-    options?: Partial<LocalJobOptions<Data>>
+    options?: Partial<LocalJobOptions<Data>>,
   ): LocalJob<Data, Result> {
     const job = new LocalJob(this, implementation, options);
     this.localJobs.add(job);

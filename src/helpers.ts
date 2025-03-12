@@ -5,24 +5,33 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+const ONE_SECOND = 1000;
+const ONE_MINUTE = 60 * ONE_SECOND;
+const ONE_HOUR = 60 * ONE_MINUTE;
+const ONE_DAY = 24 * ONE_HOUR;
+
 export const calcNextRun = (schedule: Schedule, lastRun = new Date()): Date => {
-  const t = Math.max(lastRun.getTime(), Date.now());
+  let t = Math.max(lastRun.getTime(), Date.now());
+
+  if ('cron' in schedule) {
+    return parseCronExpression(schedule.cron).getNextDate(new Date(t));
+  }
 
   if ('milliseconds' in schedule) {
-    return new Date(t + schedule.milliseconds);
+    t += schedule.milliseconds;
   }
   if ('seconds' in schedule) {
-    return new Date(t + schedule.seconds * 1000);
+    t += schedule.seconds * ONE_SECOND;
   }
   if ('minutes' in schedule) {
-    return new Date(t + schedule.minutes * 60 * 1000);
+    t += schedule.minutes * ONE_MINUTE;
   }
   if ('hours' in schedule) {
-    return new Date(t + schedule.hours * 60 * 60 * 1000);
+    t += schedule.hours * ONE_HOUR;
   }
   if ('days' in schedule) {
-    return new Date(t + schedule.days * 24 * 60 * 60 * 1000);
+    t += schedule.days * ONE_DAY;
   }
 
-  return parseCronExpression(schedule.cron).getNextDate(new Date(t));
+  return new Date(t);
 };

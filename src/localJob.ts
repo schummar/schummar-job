@@ -1,8 +1,8 @@
 import { nanoid } from 'nanoid';
-import { Queue } from 'schummar-queue';
+import { createQueue, Queue } from 'schummar-queue';
 import { Scheduler } from '.';
 import { calcNextRun } from './helpers';
-import { JobExecuteOptions, LocalJobImplementation, LocalJobOptions } from './types';
+import { LocalJobImplementation, LocalJobOptions, type ExecuteArgs } from './types';
 
 const CANCELED = Symbol('canceled');
 
@@ -24,10 +24,10 @@ export class LocalJob<Data, Result> {
       retryDelay = scheduler.options.retryDelay,
       log = scheduler.options.log,
       ...otherOptions
-    }: Partial<LocalJobOptions<Data>> = {}
+    }: Partial<LocalJobOptions<Data>> = {},
   ) {
     this.options = { maxParallel, retryCount, retryDelay, log, ...otherOptions };
-    this.q = new Queue({ parallel: this.options.maxParallel });
+    this.q = createQueue({ parallel: this.options.maxParallel });
 
     this.schedule();
   }
@@ -37,29 +37,25 @@ export class LocalJob<Data, Result> {
       const { schedule } = this.options;
       if (!schedule) return;
 
-      const data = (schedule as any).data as Data;
-
       while (!this.hasShutDown) {
         const nextRun = calcNextRun(schedule);
         await this.sleep(nextRun.getTime() - Date.now());
-        await this.execute(...([data] as any));
+        await this.execute(...([schedule.data] as ExecuteArgs<Data>));
       }
     } catch (e) {
       if (e !== CANCELED) throw e;
     }
   }
 
-  async execute(
-    ...[data, { delay = 0, executionId = nanoid() } = {}]: null extends Data
-      ? [data?: null, options?: JobExecuteOptions]
-      : [data: Data, options?: JobExecuteOptions]
-  ): Promise<Result> {
+  async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data>): Promise<Result> {
     try {
       const existing = this.executionIds.get(executionId);
       if (existing) return existing;
 
       const promise = (async () => {
-        await this.sleep(delay);
+        if (delay > 0) {
+          await this.sleep(delay);
+        }
 
         let attempt = 0,
           error: unknown;

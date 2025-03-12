@@ -1,104 +1,99 @@
-import anyTest, { TestInterface } from 'ava';
 import { Scheduler } from '../src';
 import { noopLogger, poll } from './_helpers';
+import { afterEach, beforeEach, expect, test, vi, vitest } from 'vitest';
 
-const test = anyTest as TestInterface<Scheduler>;
+declare module 'vitest' {
+  export interface TestContext {
+    scheduler: Scheduler;
+  }
+}
 
-test.beforeEach((t) => {
-  t.context = new Scheduler(undefined, { log: noopLogger });
+beforeEach((t) => {
+  t.scheduler = new Scheduler(undefined, { log: noopLogger });
 });
 
-test.afterEach.always(async (t) => {
-  await t.context.clearJobs();
+afterEach(async (t) => {
+  await t.scheduler.clearJobs();
+  vi.useRealTimers();
 });
 
 test('simple', async (t) => {
-  t.plan(1);
+  expect.assertions(1);
 
-  const job = t.context.addLocalJob(({ x }: { x: number }) => {
-    t.is(x, 42);
+  const job = t.scheduler.addLocalJob(({ x }: { x: number }) => {
+    expect(x).toBe(42);
   });
 
   await job.execute({ x: 42 });
 });
 
 test('return value', async (t) => {
-  t.plan(2);
+  expect.assertions(2);
 
-  const job = t.context.addLocalJob(({ x }: { x: number }) => {
-    t.is(x, 42);
+  const job = t.scheduler.addLocalJob(({ x }: { x: number }) => {
+    expect(x).toBe(42);
     return x + 1;
   });
 
-  t.is(await job.execute({ x: 42 }), 43);
+  await expect(job.execute({ x: 42 })).resolves.toBe(43);
 });
 
 test('error once', async (t) => {
-  const job = t.context.addLocalJob(
+  const job = t.scheduler.addLocalJob(
     (_data, { attempt, error }) => {
       if (attempt === 0) throw 'testerror';
-      t.is(error, 'testerror');
-      t.is(attempt, 1);
+      expect(error).toBe('testerror');
+      expect(attempt).toBe(1);
     },
-    { retryDelay: 0 }
+    { retryDelay: 0 },
   );
 
   await job.execute();
 });
 
 test('error multiple', async (t) => {
-  t.plan(4);
+  expect.assertions(4);
 
-  const job = t.context.addLocalJob(
+  const job = t.scheduler.addLocalJob(
     () => {
-      t.pass();
+      expect(true).toBe(true); // TODO make nicer
       throw Error('testerror');
     },
-    { retryDelay: 0, retryCount: 2 }
+    { retryDelay: 0, retryCount: 2 },
   );
 
-  await t.throwsAsync(() => job.execute());
+  await expect(job.execute()).rejects.toThrow('testerror');
 });
 
 test('schedule', async (t) => {
-  let count = 0;
+  vi.useFakeTimers();
+  const fn = vi.fn();
 
-  t.context.addLocalJob(
-    () => {
-      count++;
-    },
-    { schedule: { milliseconds: 10 } }
-  );
-
-  await poll(() => count >= 2);
-  t.pass();
+  t.scheduler.addLocalJob(fn, { schedule: { milliseconds: 1, seconds: 1, minutes: 1, hours: 1, days: 1 } });
+  await vi.advanceTimersByTimeAsync(2 * (24 * 60 * 60 * 1000 + 60 * 60 * 1000 + 60 * 1000 + 1000) + 2);
+  expect(fn).toHaveBeenCalledTimes(2);
 });
 
 test('schedule with data', async (t) => {
-  let count = 0;
+  vi.useFakeTimers();
+  const fn = vi.fn((x: number) => expect(x).toBe(42));
 
-  t.context.addLocalJob(
-    (x: number) => {
-      t.is(x, 42);
-      count++;
-    },
-    { schedule: { milliseconds: 10, data: 42 } }
-  );
+  t.scheduler.addLocalJob(fn, { schedule: { milliseconds: 10, data: 42 } });
 
-  await poll(() => count >= 2);
-  t.pass();
+  await vi.advanceTimersByTimeAsync(20 + 2);
+  expect(fn).toHaveBeenCalledTimes(2);
 });
 
-test.serial('executionId', async (t) => {
-  t.plan(2);
+test('executionId', async (t) => {
+  expect.assertions(2);
 
-  const job = t.context.addLocalJob(() => {
-    t.pass();
+  const job = t.scheduler.addLocalJob(() => {
+    expect(true).toBe(true); // TODO make nicer
   });
 
-  const j0 = job.execute(null, { executionId: 'foo' });
-  const j1 = job.execute(null, { executionId: 'foo' });
+  const j0 = job.execute(undefined, { executionId: 'foo' });
+  const j1 = job.execute(undefined, { executionId: 'foo' });
 
   await Promise.all([j0, j1]);
-  await job.execute(null, { executionId: 'foo' });
+  await job.execute(undefined, { executionId: 'foo' });
 });

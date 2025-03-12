@@ -1,173 +1,177 @@
-import anyTest, { TestInterface } from 'ava';
+import { deepEqual } from 'fast-equals';
 import { MongoClient } from 'mongodb';
+import { afterEach, beforeEach, expect, test } from 'vitest';
 import { Scheduler } from '../src';
 import { poll } from './_helpers';
-import { deepEqual } from 'fast-equals';
 
-const test = anyTest as TestInterface<Scheduler>;
+declare module 'vitest' {
+  export interface TestContext {
+    scheduler: Scheduler;
+  }
+}
 
 const client = MongoClient.connect('mongodb://localhost', { directConnection: true });
 const db = client.then((client) => client.db('schummar-job-tests'));
 
-test.beforeEach(async (t) => {
-  t.context = new Scheduler((await db).collection(t.title), { lockDuration: 100, log: () => undefined });
-  await t.context.clearDB();
+beforeEach(async (t) => {
+  t.scheduler = new Scheduler((await db).collection(t.task.name), { lockDuration: 100, log: () => undefined });
+  await t.scheduler.clearDB();
 });
 
-test.afterEach.always(async (t) => {
-  await t.context.shutdown();
-  await t.context.clearDB();
+afterEach(async (t) => {
+  await t.scheduler.shutdown();
+  await t.scheduler.clearDB();
 });
 
 test('simple', async (t) => {
-  t.plan(1);
+  expect.assertions(1);
 
-  const job = t.context.addJob('job0', ({ x }: { x: number }) => {
-    t.is(x, 42);
+  const job = t.scheduler.addJob('job0', ({ x }: { x: number }) => {
+    expect(x).toBe(42);
   });
 
   await job.executeAndAwait({ x: 42 });
 });
 
 test('return value', async (t) => {
-  const job = t.context.addJob('job0', ({ x }: { x: number }) => {
-    t.is(x, 42);
+  const job = t.scheduler.addJob('job0', ({ x }: { x: number }) => {
+    expect(x).toBe(42);
     return x + 1;
   });
 
-  t.is(await job.executeAndAwait({ x: 42 }), 43);
+  await expect(job.executeAndAwait({ x: 42 })).resolves.toBe(43);
 });
 
 test('error once', async (t) => {
-  t.plan(2);
+  expect.assertions(2);
 
-  const job = t.context.addJob(
+  const job = t.scheduler.addJob(
     'job0',
     (_data, { job }) => {
       if (job.attempt === 0) {
-        t.pass();
+        expect(true).toBe(true); // TODO make nicer
         throw Error('testerror');
       }
-      t.is(job.attempt, 1);
+      expect(job.attempt).toBe(1);
     },
-    { retryDelay: 0 }
+    { retryDelay: 0 },
   );
 
   await job.executeAndAwait();
 });
 
 test('error multiple', async (t) => {
-  t.plan(4);
+  expect.assertions(4);
 
-  const job = t.context.addJob(
+  const job = t.scheduler.addJob(
     'job0',
     () => {
-      t.pass();
+      expect(true).toBe(true); // TODO make nicer
       throw Error('testerror');
     },
-    { retryDelay: 0, retryCount: 2 }
+    { retryDelay: 0, retryCount: 2 },
   );
 
-  await t.throwsAsync(() => job.executeAndAwait());
+  await expect(job.executeAndAwait()).rejects.toThrow('testerror');
 });
 
 test('multiple workers', async (t) => {
-  t.plan(5);
+  expect.assertions(5);
 
   const props = [
     'job0',
     () => {
-      t.pass();
+      expect(true).toBe(true); // TODO make nicer
     },
   ] as const;
 
-  const job = t.context.addJob(...props);
-  t.context.addJob(...props);
-  t.context.addJob(...props);
+  const job = t.scheduler.addJob(...props);
+  t.scheduler.addJob(...props);
+  t.scheduler.addJob(...props);
 
   await Promise.all(
     Array(5)
       .fill(0)
-      .map(() => job.executeAndAwait())
+      .map(() => job.executeAndAwait()),
   );
 });
 
 test('schedule', async (t) => {
   let count = 0;
 
-  t.context.addJob(
+  t.scheduler.addJob(
     'job0',
     () => {
       count++;
     },
-    { schedule: { milliseconds: 10 } }
+    { schedule: { milliseconds: 10 } },
   );
 
   await poll(() => count >= 2);
-  t.pass();
+  expect(true).toBe(true); // TODO make nicer
 });
 
 test('schedule with data', async (t) => {
   let count = 0;
 
-  t.context.addJob(
+  t.scheduler.addJob(
     'job0',
     (x: number) => {
-      t.is(x, 42);
+      expect(x).toBe(42);
       count++;
     },
-    { schedule: { milliseconds: 10, data: 42 } }
+    { schedule: { milliseconds: 10, data: 42 } },
   );
 
   await poll(() => count >= 2);
-  t.pass();
+  expect(true).toBe(true); // TODO make nicer
 });
 
 test('restart', async (t) => {
-  t.plan(1);
+  expect.assertions(1);
 
-  const job = t.context.addJob('job0', () => {
-    t.fail();
+  const job = t.scheduler.addJob('job0', () => {
+    expect.fail();
   });
 
-  await t.context.shutdown();
+  await t.scheduler.shutdown();
   const id = await job.execute();
 
-  const newScheduler = new Scheduler(t.context.collection, { lockDuration: 100 });
+  const newScheduler = new Scheduler(t.scheduler.collection, { lockDuration: 100 });
   const newJob = newScheduler.addJob('job0', () => {
-    t.pass();
+    expect(true).toBe(true); // TODO make nicer
   });
 
   await newJob.await(id);
 });
 
 test('null implementation', async (t) => {
-  t.plan(1);
+  expect.assertions(1);
 
-  const job = t.context.addJob('job0');
+  const job = t.scheduler.addJob('job0');
   const id = await job.execute();
 
-  t.context.addJob('job0', () => {
-    t.pass();
+  t.scheduler.addJob('job0', () => {
+    expect(true).toBe(true); // TODO make nicer
   });
   await job.await(id);
 });
 
 test('executionId', async (t) => {
-  const job = t.context.addJob('job0', () => {
+  const job = t.scheduler.addJob('job0', () => {
     return 42;
   });
 
   await job.execute(null, { executionId: 'foo' });
   await job.execute(null, { executionId: 'foo' });
 
-  t.is(await job.executeAndAwait(null, { executionId: 'foo' }), 42);
+  await expect(job.executeAndAwait(null, { executionId: 'foo' })).resolves.toBe(42);
 });
 
 test('progress', async (t) => {
   let progress = 0;
 
-  const job = t.context.addJob('job0', async (_data, { setProgress }) => {
+  const job = t.scheduler.addJob('job0', async (_data, { setProgress }) => {
     await setProgress(0.3);
     await poll(() => progress === 0.3);
     await setProgress(0.6);
@@ -181,7 +185,19 @@ test('progress', async (t) => {
     progress = p;
   });
   await poll(() => progress === 1);
-  t.pass();
+  expect(true).toBe(true); // TODO make nicer
+});
+
+test('logs', async (t) => {
+  const job = t.scheduler.addJob('job0', async (_data, { log }) => {
+    await log('foo');
+    await log('bar');
+  });
+
+  const id = await job.execute();
+  await job.await(id);
+  const entry = await job.getExecution(id);
+  expect(entry?.logs.length).toBe(2);
 });
 
 test('watch', async (t) => {
@@ -190,7 +206,7 @@ test('watch', async (t) => {
   let resolve: (() => void) | undefined,
     firstWatch = false;
 
-  const job = t.context.addJob('job0', async () => {
+  const job = t.scheduler.addJob('job0', async () => {
     if (firstWatch) return;
     return new Promise<void>((r) => {
       resolve = r;
@@ -209,13 +225,13 @@ test('watch', async (t) => {
   });
 
   await poll(() => deepEqual(invocations, ['planned', 'completed']));
-  t.pass();
+  expect(true).toBe(true); // TODO make nicer
 });
 
 test('getPlanned', async (t) => {
-  const job = t.context.addJob('job0');
+  const job = t.scheduler.addJob('job0');
   await job.execute();
 
   const planned = await job.getPlanned();
-  t.is(planned.length, 1);
+  expect(planned.length).toBe(1);
 });
