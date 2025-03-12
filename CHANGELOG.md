@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://www.github.com/schummar/schummar-job/compare/v0.4.6...v0.5.0) (2025-03-12)
+
+
+### Features
+
+* added logs ([e9b670f](https://www.github.com/schummar/schummar-job/commit/e9b670faa15710547dee3b914488253748c5d036))
+
+
+### Bug Fixes
+
+* exported more types ([c7a9b3d](https://www.github.com/schummar/schummar-job/commit/c7a9b3dbd72fdfe545972a70e8fd5765930bc06f))
+* lint pipeline ([5b6579e](https://www.github.com/schummar/schummar-job/commit/5b6579e85c4b84b1070039ea7dcfbc6c3db373c9))
+* some fixes ([e9b670f](https://www.github.com/schummar/schummar-job/commit/e9b670faa15710547dee3b914488253748c5d036))
+
 ### [0.4.6](https://www.github.com/schummar/schummar-job/compare/v0.4.5...v0.4.6) (2023-10-20)
 
 
