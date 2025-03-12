@@ -43,8 +43,8 @@ jobs:
         with:
           node-version: 22.x
           cache: pnpm
-      - run: npm ci
-      - run: npm run lint
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
 
   build:
     runs-on: ubuntu-latest
