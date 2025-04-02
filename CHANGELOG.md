@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://www.github.com/schummar/schummar-job/compare/v0.5.1...v0.6.0) (2025-04-02)
+
+
+### Features
+
+* added getter and listeners for job executions ([efe7281](https://www.github.com/schummar/schummar-job/commit/efe7281e975a5f03512216b40791d4c1e1067b6a))
+
 ### [0.5.1](https://www.github.com/schummar/schummar-job/compare/v0.5.0...v0.5.1) (2025-03-12)
 
 
