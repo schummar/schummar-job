@@ -75,6 +75,7 @@ export interface DistributedJobOptions<Data> extends LocalJobOptions<Data> {
 }
 
 export interface JobExecuteOptions {
+  at?: Date | number | string;
   delay?: number;
   executionId?: string;
 }

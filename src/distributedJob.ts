@@ -45,8 +45,11 @@ export class DistributedJob<Data, Result, Progress> {
     }
   }
 
-  async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data>): Promise<string> {
-    this.options.log('debug', this.label, 'schedule for execution', this.jobId);
+  async execute(...[data, { at, delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data>): Promise<string> {
+    const t = at ? new Date(at) : new Date();
+    t.setMilliseconds(t.getMilliseconds() + delay);
+
+    this.options.log('debug', this.label, 'schedule for execution', this.jobId, !at && !delay ? 'immediately' : `at ${t.toISOString()}`);
 
     const col = await this.collection;
     await col.updateOne(
@@ -60,7 +63,7 @@ export class DistributedJob<Data, Result, Progress> {
           executionId,
 
           schedule: null,
-          nextRun: new Date(Date.now() + delay),
+          nextRun: t,
           lock: null,
           finishedOn: null,
           attempt: 0,
@@ -315,7 +318,7 @@ export class DistributedJob<Data, Result, Progress> {
     this.options.log('debug', this.label, 'updated log', job.executionId, log);
   }
 
-  async checkForNextRun(): Promise<void> {
+  private async checkForNextRun(): Promise<void> {
     if (this.hasShutDown || !this.implementation) return;
 
     const col = await this.collection;
@@ -354,7 +357,7 @@ export class DistributedJob<Data, Result, Progress> {
     }
   }
 
-  async planNextRun(job: JobDbEntry<Data, Result, Progress>): Promise<void> {
+  private async planNextRun(job: JobDbEntry<Data, Result, Progress>): Promise<void> {
     if (this.hasShutDown || !this.implementation) return;
 
     const now = Date.now();

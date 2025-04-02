@@ -1,7 +1,8 @@
 import { deepEqual } from 'fast-equals';
 import { MongoClient } from 'mongodb';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { Scheduler } from '../src';
+import { sleep } from '../src/helpers';
 import { poll } from './_helpers';
 
 declare module 'vitest' {
@@ -162,10 +163,10 @@ test('executionId', async (t) => {
     return 42;
   });
 
-  await job.execute(null, { executionId: 'foo' });
-  await job.execute(null, { executionId: 'foo' });
+  await job.execute(undefined, { executionId: 'foo' });
+  await job.execute(undefined, { executionId: 'foo' });
 
-  await expect(job.executeAndAwait(null, { executionId: 'foo' })).resolves.toBe(42);
+  await expect(job.executeAndAwait(undefined, { executionId: 'foo' })).resolves.toBe(42);
 });
 
 test('progress', async (t) => {
@@ -234,4 +235,46 @@ test('getPlanned', async (t) => {
 
   const planned = await job.getPlanned();
   expect(planned.length).toBe(1);
+});
+
+test('subscribe to executions', async (t) => {
+  const listener = vi.fn();
+  t.scheduler.onExecutionUpdate(listener);
+
+  const job = t.scheduler.addJob('job', (_, { setProgress, log }) => {
+    setProgress(0.5);
+    log('foo');
+  });
+
+  await job.executeAndAwait();
+  await sleep(100);
+
+  expect(listener).toHaveBeenCalledWith(
+    expect.objectContaining({
+      state: 'planned',
+    }),
+  );
+
+  expect(listener).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      state: 'completed',
+      progress: 0.5,
+      logs: [{ log: 'foo', t: expect.any(Number) }],
+    }),
+  );
+});
+
+test('get executions', async (t) => {
+  const job = t.scheduler.addJob('job0', () => {
+    return 42;
+  });
+
+  await job.executeAndAwait();
+  await job.execute(undefined, { delay: 10_000 });
+
+  const executions = await t.scheduler.getExecutions({ jobId: 'job0' });
+
+  expect(executions.length).toBe(2);
+  expect(executions[0]).toMatchObject({ state: 'completed', result: 42 });
+  expect(executions[1]).toMatchObject({ state: 'planned', nextRun: expect.toSatisfy((x) => new Date(x).getTime() > Date.now()) });
 });

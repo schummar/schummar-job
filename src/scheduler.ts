@@ -1,4 +1,4 @@
-import { ChangeStream, Collection, MongoClient } from 'mongodb';
+import { ChangeStream, Collection, MongoClient, type Filter } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
 import { LocalJob } from './localJob';
@@ -30,6 +30,8 @@ export class Scheduler {
   private stream?: ChangeStream<JobDbEntry<any, any, any>>;
   private hasShutDown = false;
   private label = `[schummar-job]`;
+  private executionListeners = new Set<(execution: JobDbEntry<any, any, any>) => void>();
+  private reconnectListeners = new Set<() => void>();
   public readonly options: SchedulerOptions;
 
   constructor(
@@ -80,6 +82,7 @@ export class Scheduler {
       this.stream.once('resumeTokenChanged', () => {
         this.options.log('debug', this.label, 'db watcher first token');
         for (const job of this.distributedJobs) job.changeStreamReconnected();
+        for (const listener of this.reconnectListeners) listener();
       });
 
       // When starting watching or after connection loss, force refresh
@@ -96,6 +99,9 @@ export class Scheduler {
             if (job.jobId === change.fullDocument.jobId) {
               job.receiveUpdate(change.fullDocument);
             }
+          }
+          for (const listener of this.executionListeners) {
+            listener(change.fullDocument);
           }
         }
       }
@@ -114,7 +120,7 @@ export class Scheduler {
     }
   }
 
-  addJob<Data, Result, Progress = number>(
+  addJob<Data = undefined, Result = undefined, Progress = number>(
     jobId: string,
     implementation?: DistributedJobImplementation<Data, Result, Progress>,
     options?: Partial<DistributedJobOptions<Data>>,
@@ -138,6 +144,35 @@ export class Scheduler {
     this.localJobs.add(job);
 
     return job;
+  }
+
+  getJobs(): DistributedJob<any, any, any>[] {
+    return [...this.distributedJobs];
+  }
+
+  getLocalJobs(): LocalJob<any, any>[] {
+    return [...this.localJobs];
+  }
+
+  onExecutionUpdate(listener: (execution: JobDbEntry<any, any, any>) => void): () => void {
+    this.executionListeners.add(listener);
+    return () => {
+      this.executionListeners.delete(listener);
+    };
+  }
+
+  onReconnect(listener: () => void): () => void {
+    this.reconnectListeners.add(listener);
+    return () => {
+      this.reconnectListeners.delete(listener);
+    };
+  }
+
+  async getExecutions(filter: Filter<JobDbEntry<any, any, any>>): Promise<JobDbEntry<any, any, any>[]> {
+    if (!this.collection) throw Error('No db set up!');
+
+    const col = await this.collection;
+    return await col.find(filter).toArray();
   }
 
   async clearDB(): Promise<void> {
