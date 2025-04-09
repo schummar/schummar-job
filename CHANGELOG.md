@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://www.github.com/schummar/schummar-job/compare/v0.6.0...v0.7.0) (2025-04-09)
+
+
+### Features
+
+* allow updating job options ([9d48854](https://www.github.com/schummar/schummar-job/commit/9d48854a70c98bd9abdec1f0fbd3cb00e62f49ef))
+
 ## [0.6.0](https://www.github.com/schummar/schummar-job/compare/v0.5.1...v0.6.0) (2025-04-02)
 
 
