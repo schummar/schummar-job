@@ -17,25 +17,17 @@ export class DistributedJob<Data, Result, Progress> {
     listener: (job: JobDbEntry<Data, Result, Progress>) => void;
   }>();
   private label;
-  public readonly options: DistributedJobOptions<Data>;
+  private _options: DistributedJobOptions<Data>;
 
   constructor(
     public readonly scheduler: Scheduler,
     public readonly collection: MaybePromise<Collection<JobDbEntry<any, any, any>>>,
     public readonly jobId: string,
     public readonly implementation: DistributedJobImplementation<Data, Result, Progress> | undefined,
-    {
-      maxParallel = DistributedJob.DEFAULT_MAX_PARALLEL,
-      retryCount = scheduler.options.retryCount,
-      retryDelay = scheduler.options.retryDelay,
-      log = scheduler.options.log,
-      lockDuration = scheduler.options.lockDuration,
-      lockCheckInterval = scheduler.options.lockCheckInterval,
-      ...otherOptions
-    }: Partial<DistributedJobOptions<Data>> = {},
+    options: Partial<DistributedJobOptions<Data>> = {},
   ) {
     this.label = `[schummar-job/${this.jobId}]`;
-    this.options = { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, ...otherOptions };
+    this._options = this.normalizeOptions(options);
     this.q = createQueue({ parallel: this.options.maxParallel });
 
     if (implementation) {
@@ -45,11 +37,37 @@ export class DistributedJob<Data, Result, Progress> {
     }
   }
 
+  get options() {
+    return { ...this._options };
+  }
+
+  set options(options: Partial<DistributedJobOptions<Data>>) {
+    this._options = this.normalizeOptions(options);
+
+    if (this.implementation) {
+      this.schedule();
+      this.checkLocks();
+      this.next();
+    }
+  }
+
+  private normalizeOptions({
+    maxParallel = DistributedJob.DEFAULT_MAX_PARALLEL,
+    retryCount = this.scheduler.options.retryCount,
+    retryDelay = this.scheduler.options.retryDelay,
+    log = this.scheduler.options.log,
+    lockDuration = this.scheduler.options.lockDuration,
+    lockCheckInterval = this.scheduler.options.lockCheckInterval,
+    ...otherOptions
+  }: Partial<DistributedJobOptions<Data>>): DistributedJobOptions<Data> {
+    return { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, ...otherOptions };
+  }
+
   async execute(...[data, { at, delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data>): Promise<string> {
     const t = at ? new Date(at) : new Date();
     t.setMilliseconds(t.getMilliseconds() + delay);
 
-    this.options.log('debug', this.label, 'schedule for execution', this.jobId, !at && !delay ? 'immediately' : `at ${t.toISOString()}`);
+    this._options.log('debug', this.label, 'schedule for execution', this.jobId, !at && !delay ? 'immediately' : `at ${t.toISOString()}`);
 
     const col = await this.collection;
     await col.updateOne(
@@ -76,7 +94,7 @@ export class DistributedJob<Data, Result, Progress> {
       { upsert: true },
     );
 
-    this.options.log('debug', this.label, 'successfully scheduled for execution', executionId);
+    this._options.log('debug', this.label, 'successfully scheduled for execution', executionId);
 
     return executionId;
   }
@@ -153,7 +171,7 @@ export class DistributedJob<Data, Result, Progress> {
   }
 
   async shutdown(): Promise<void> {
-    this.options.log('info', this.label, 'shutting down');
+    this._options.log('info', this.label, 'shutting down');
 
     this.hasShutDown = true;
     if (this.timeout) {
@@ -165,7 +183,7 @@ export class DistributedJob<Data, Result, Progress> {
   }
 
   private async schedule(lastJob?: JobDbEntry<Data, Result, Progress>) {
-    const { schedule } = this.options;
+    const { schedule } = this._options;
     const data = schedule && (schedule as { data?: Data }).data;
 
     if (!schedule) return;
@@ -203,14 +221,14 @@ export class DistributedJob<Data, Result, Progress> {
 
     while (!this.hasShutDown) {
       try {
-        const threshold = new Date(Date.now() - this.options.lockDuration);
+        const threshold = new Date(Date.now() - this._options.lockDuration);
         const res = await col.updateMany({ jobId: this.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
-        if (res.modifiedCount) this.options.log('info', this.label, 'Unlocked jobs:', res.modifiedCount);
+        if (res.modifiedCount) this._options.log('info', this.label, 'Unlocked jobs:', res.modifiedCount);
       } catch (e) {
-        this.options.log('warn', this.label, 'Failed to check locks:', e);
+        this._options.log('warn', this.label, 'Failed to check locks:', e);
       }
 
-      await sleep(this.options.lockCheckInterval);
+      await sleep(this._options.lockCheckInterval);
     }
   }
 
@@ -240,7 +258,7 @@ export class DistributedJob<Data, Result, Progress> {
             $set: { lock: now },
           },
         );
-        this.options.log('debug', this.label, 'find next', job?.executionId);
+        this._options.log('debug', this.label, 'find next', job?.executionId);
 
         if (!job) {
           this.checkForNextRun();
@@ -253,14 +271,14 @@ export class DistributedJob<Data, Result, Progress> {
 
         try {
           const q = createQueue();
-          this.options.log('debug', this.label, 'execute next', job?.executionId);
+          this._options.log('debug', this.label, 'execute next', job?.executionId);
           const result = await this.implementation(job.data, {
             job,
             setProgress: (progress) => q.schedule(() => this.setProgress(job, progress)),
             log: (log) => q.schedule(() => this.log(job, log)),
           });
           await q.whenEmpty();
-          this.options.log('debug', this.label, 'execute next done', job?.executionId);
+          this._options.log('debug', this.label, 'execute next done', job?.executionId);
 
           if (job.schedule) {
             await this.schedule(job);
@@ -280,12 +298,12 @@ export class DistributedJob<Data, Result, Progress> {
           );
         } catch (e) {
           const msg = e instanceof Error ? e.message : e instanceof Object ? JSON.stringify(e) : String(e);
-          const retry = job.attempt < this.options.retryCount;
+          const retry = job.attempt < this._options.retryCount;
           await col.updateOne(
             { _id: job._id },
             {
               $set: {
-                nextRun: retry ? new Date(Date.now() + this.options.retryDelay) : job.nextRun,
+                nextRun: retry ? new Date(Date.now() + this._options.retryDelay) : job.nextRun,
                 lock: null,
                 attempt: retry ? job.attempt + 1 : job.attempt,
 
@@ -299,7 +317,7 @@ export class DistributedJob<Data, Result, Progress> {
           throw e;
         }
       } catch (e) {
-        this.options.log('error', this.label, 'next failed', e);
+        this._options.log('error', this.label, 'next failed', e);
       }
     });
   }
@@ -308,14 +326,14 @@ export class DistributedJob<Data, Result, Progress> {
     const col = await this.collection;
     await col.updateOne({ _id: job._id }, { $set: { lock: new Date(), progress } });
 
-    this.options.log('debug', this.label, 'updated progress', job.executionId, JSON.stringify(progress));
+    this._options.log('debug', this.label, 'updated progress', job.executionId, JSON.stringify(progress));
   }
 
   private async log(job: JobDbEntry<Data, Result, Progress>, log: string) {
     const col = await this.collection;
     await col.updateOne({ _id: job._id }, { $push: { logs: { t: Date.now(), log } } });
 
-    this.options.log('debug', this.label, 'updated log', job.executionId, log);
+    this._options.log('debug', this.label, 'updated log', job.executionId, log);
   }
 
   private async checkForNextRun(): Promise<void> {
@@ -364,7 +382,7 @@ export class DistributedJob<Data, Result, Progress> {
     const date = new Date(Math.min(job.nextRun.getTime(), now + 60 * 60 * 1000));
 
     if (!this.timeout || date.getTime() < this.timeout.date.getTime()) {
-      this.options.log('debug', this.label, 'plan next run', date.toISOString());
+      this._options.log('debug', this.label, 'plan next run', date.toISOString());
       if (this.timeout) clearTimeout(this.timeout.handle);
       this.timeout = {
         handle: setTimeout(() => this.next(), date.getTime() - now),
