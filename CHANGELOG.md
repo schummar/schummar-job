@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://www.github.com/schummar/schummar-job/compare/v0.7.0...v0.8.0) (2025-04-10)
+
+
+### Features
+
+* changed how executionIds are stored and replaced logs by general history ([b6c7ce9](https://www.github.com/schummar/schummar-job/commit/b6c7ce92d6ca57a7dc961d56e6066e8b0eb4a392))
+
 ## [0.7.0](https://www.github.com/schummar/schummar-job/compare/v0.6.0...v0.7.0) (2025-04-09)
 
 
