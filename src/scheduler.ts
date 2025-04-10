@@ -92,7 +92,7 @@ export class Scheduler {
           'debug',
           this.label,
           'db watcher change received',
-          'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument.executionId}` : undefined,
+          'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument._id}` : undefined,
         );
         if ('fullDocument' in change && change.fullDocument) {
           for (const job of this.distributedJobs) {

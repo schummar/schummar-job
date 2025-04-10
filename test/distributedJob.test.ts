@@ -191,14 +191,34 @@ test('progress', async (t) => {
 
 test('logs', async (t) => {
   const job = t.scheduler.addJob('job0', async (_data, { log }) => {
-    await log('foo');
-    await log('bar');
+    log('foo');
+    log('bar');
   });
 
   const id = await job.execute();
   await job.await(id);
   const entry = await job.getExecution(id);
-  expect(entry?.logs.length).toBe(2);
+
+  expect(entry?.history.map((x) => [x.event, x.message])).toMatchInlineSnapshot(`
+    [
+      [
+        "start",
+        null,
+      ],
+      [
+        "log",
+        "foo",
+      ],
+      [
+        "log",
+        "bar",
+      ],
+      [
+        "complete",
+        null,
+      ],
+    ]
+  `);
 });
 
 test('watch', async (t) => {
@@ -259,7 +279,7 @@ test('subscribe to executions', async (t) => {
     expect.objectContaining({
       state: 'completed',
       progress: 0.5,
-      logs: [{ log: 'foo', t: expect.any(Number) }],
+      history: expect.toSatisfy((x) => x.length === 3),
     }),
   );
 });

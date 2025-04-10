@@ -4,7 +4,7 @@ import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
 import { calcNextRun, MaybePromise, sleep } from './helpers';
 import { Scheduler } from './scheduler';
-import { DistributedJobImplementation, DistributedJobOptions, JobDbEntry, type ExecuteArgs } from './types';
+import { DistributedJobImplementation, DistributedJobOptions, JobDbEntry, type ExecuteArgs, type HistoryItem } from './types';
 
 export class DistributedJob<Data, Result, Progress> {
   static DEFAULT_MAX_PARALLEL = 1;
@@ -72,13 +72,11 @@ export class DistributedJob<Data, Result, Progress> {
     const col = await this.collection;
     await col.updateOne(
       {
-        jobId: this.jobId,
-        executionId,
+        _id: executionId,
       },
       {
         $setOnInsert: {
           jobId: this.jobId,
-          executionId,
 
           schedule: null,
           nextRun: t,
@@ -88,6 +86,7 @@ export class DistributedJob<Data, Result, Progress> {
 
           data: data,
           progress: 0,
+          history: [],
           state: 'planned',
         },
       },
@@ -113,7 +112,7 @@ export class DistributedJob<Data, Result, Progress> {
 
       (async () => {
         const col = await this.collection;
-        const existing = await col.findOne({ jobId: this.jobId, executionId });
+        const existing = await col.findOne({ _id: executionId });
         if (existing) listener(existing);
       })();
     });
@@ -139,7 +138,7 @@ export class DistributedJob<Data, Result, Progress> {
 
     (async () => {
       const col = await this.collection;
-      const existing = await col.findOne({ jobId: this.jobId, executionId });
+      const existing = await col.findOne({ _id: executionId });
       if (existing) listener(existing);
     })();
 
@@ -158,7 +157,7 @@ export class DistributedJob<Data, Result, Progress> {
 
     (async () => {
       const col = await this.collection;
-      const existing = await col.findOne({ jobId: this.jobId, executionId });
+      const existing = await col.findOne({ _id: executionId });
       if (existing) listener(existing);
     })();
 
@@ -167,7 +166,7 @@ export class DistributedJob<Data, Result, Progress> {
 
   async getExecution(executionId: string): Promise<JobDbEntry<Data, Result, Progress> | null> {
     const col = await this.collection;
-    return await col.findOne({ jobId: this.jobId, executionId });
+    return await col.findOne({ _id: executionId });
   }
 
   async shutdown(): Promise<void> {
@@ -198,8 +197,7 @@ export class DistributedJob<Data, Result, Progress> {
       },
       {
         $setOnInsert: {
-          jobId: this.jobId,
-          executionId: nanoid(),
+          _id: nanoid(),
 
           schedule: schedule,
           nextRun: calcNextRun(schedule, lastJob?.nextRun),
@@ -258,7 +256,7 @@ export class DistributedJob<Data, Result, Progress> {
             $set: { lock: now },
           },
         );
-        this._options.log('debug', this.label, 'find next', job?.executionId);
+        this._options.log('debug', this.label, 'find next', job?._id);
 
         if (!job) {
           this.checkForNextRun();
@@ -271,34 +269,69 @@ export class DistributedJob<Data, Result, Progress> {
 
         try {
           const q = createQueue();
-          this._options.log('debug', this.label, 'execute next', job?.executionId);
+          this._options.log('debug', this.label, 'execute next', job?._id);
+
+          let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
+          let history: HistoryItem[] = [];
+
+          const addHistory = (event: HistoryItem['event'], message?: string) => {
+            history.push({ t: Date.now(), attempt: job.attempt, event, message });
+          };
+
+          const flush = () => {
+            if (Object.keys($set).length === 0 && history.length === 0) {
+              return;
+            }
+
+            q.schedule(() =>
+              col.updateOne(
+                { _id: job._id },
+                {
+                  ...(Object.keys($set).length > 0 && { $set }),
+                  ...(history.length > 0 && { $push: { history: { $each: history } } }),
+                },
+              ),
+            );
+            $set = {};
+            history = [];
+          };
+
+          const flushInterval = setInterval(flush, 1000);
+
+          addHistory('start');
+
           const result = await this.implementation(job.data, {
             job,
-            setProgress: (progress) => q.schedule(() => this.setProgress(job, progress)),
-            log: (log) => q.schedule(() => this.log(job, log)),
+            setProgress(progress) {
+              $set.progress = progress;
+            },
+            log(message) {
+              addHistory('log', message);
+            },
           });
-          await q.whenEmpty();
-          this._options.log('debug', this.label, 'execute next done', job?.executionId);
 
           if (job.schedule) {
             await this.schedule(job);
           }
 
-          await col.updateOne(
-            { _id: job._id },
-            {
-              $set: {
-                lock: null,
-                finishedOn: new Date(),
-                state: 'completed',
-                result,
-                error: null,
-              },
-            },
-          );
+          Object.assign($set, {
+            lock: null,
+            finishedOn: new Date(),
+            state: 'completed',
+            result,
+            error: null,
+          });
+
+          addHistory('complete');
+          clearInterval(flushInterval);
+          flush();
+          await q.whenEmpty();
+
+          this._options.log('debug', this.label, 'execute next done', job?._id);
         } catch (e) {
           const msg = e instanceof Error ? e.message : e instanceof Object ? JSON.stringify(e) : String(e);
           const retry = job.attempt < this._options.retryCount;
+
           await col.updateOne(
             { _id: job._id },
             {
@@ -322,20 +355,6 @@ export class DistributedJob<Data, Result, Progress> {
     });
   }
 
-  private async setProgress(job: JobDbEntry<Data, Result, Progress>, progress: Progress) {
-    const col = await this.collection;
-    await col.updateOne({ _id: job._id }, { $set: { lock: new Date(), progress } });
-
-    this._options.log('debug', this.label, 'updated progress', job.executionId, JSON.stringify(progress));
-  }
-
-  private async log(job: JobDbEntry<Data, Result, Progress>, log: string) {
-    const col = await this.collection;
-    await col.updateOne({ _id: job._id }, { $push: { logs: { t: Date.now(), log } } });
-
-    this._options.log('debug', this.label, 'updated log', job.executionId, log);
-  }
-
   private async checkForNextRun(): Promise<void> {
     if (this.hasShutDown || !this.implementation) return;
 
@@ -356,7 +375,7 @@ export class DistributedJob<Data, Result, Progress> {
 
   async receiveUpdate(job: JobDbEntry<Data, Result, Progress>): Promise<void> {
     for (const { executionId, listener } of this.subscribedExecutionIds) {
-      if (executionId === job.executionId) listener(job);
+      if (executionId === job._id) listener(job);
     }
 
     if (job.state === 'planned') {
@@ -369,7 +388,7 @@ export class DistributedJob<Data, Result, Progress> {
 
     const executionIds = new Set(this.subscribedExecutionIds.map((x) => x.executionId));
     const col = await this.collection;
-    const cursor = col.find<JobDbEntry<Data, Result, Progress>>({ jobId: this.jobId, executionId: { $in: [...executionIds] } });
+    const cursor = col.find<JobDbEntry<Data, Result, Progress>>({ _id: { $in: [...executionIds] } });
     for await (const job of cursor) {
       await this.receiveUpdate(job);
     }

@@ -1,4 +1,4 @@
-import { Collection, ObjectId } from 'mongodb';
+import { Collection } from 'mongodb';
 import { MaybePromise } from './helpers';
 
 export type Schedule =
@@ -9,15 +9,16 @@ export type Schedule =
   | { days: number }
   | { cron: string };
 
-export interface LogLine {
+export interface HistoryItem {
   t: number;
-  log: string;
+  attempt: number;
+  event: 'start' | 'complete' | 'error' | 'log';
+  message?: string;
 }
 
 export type JobDbEntry<Data, Result, Progress> = {
-  _id: ObjectId;
+  _id: string;
   jobId: string;
-  executionId: string;
 
   schedule: Schedule | null;
   nextRun: Date;
@@ -27,7 +28,7 @@ export type JobDbEntry<Data, Result, Progress> = {
 
   data: Data;
   progress?: Progress;
-  logs: LogLine[];
+  history: HistoryItem[];
 } & ({ state: 'planned' } | { state: 'completed'; result: Result } | { state: 'error'; error: string });
 
 export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any, any>> | { uri: string; db: string; collection: string }>;
@@ -55,8 +56,8 @@ export interface DistributedJobImplementation<Data, Result, Progress> {
     data: Data,
     helpers: {
       job: JobDbEntry<Data, never, Progress>;
-      setProgress(progress: Progress): Promise<void>;
-      log(log: string): Promise<void>;
+      setProgress(progress: Progress): void;
+      log(log: string): void;
     },
   ): MaybePromise<Result>;
 }
