@@ -283,15 +283,12 @@ export class DistributedJob<Data, Result, Progress> {
               return;
             }
 
-            q.schedule(() =>
-              col.updateOne(
-                { _id: job._id },
-                {
-                  ...(Object.keys($set).length > 0 && { $set }),
-                  ...(history.length > 0 && { $push: { history: { $each: history } } }),
-                },
-              ),
-            );
+            const update = {
+              ...(Object.keys($set).length > 0 && { $set }),
+              ...(history.length > 0 && { $push: { history: { $each: history } } }),
+            };
+
+            q.schedule(() => col.updateOne({ _id: job._id }, update));
             $set = {};
             history = [];
           };
