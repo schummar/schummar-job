@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.8.1](https://www.github.com/schummar/schummar-job/compare/v0.8.0...v0.8.1) (2025-04-11)
+
+
+### Bug Fixes
+
+* update error when flushing progress or logs ([c18da5a](https://www.github.com/schummar/schummar-job/commit/c18da5a080d89926f4254b4bd9a881deaab6431f))
+
 ## [0.8.0](https://www.github.com/schummar/schummar-job/compare/v0.7.0...v0.8.0) (2025-04-10)
 
 
