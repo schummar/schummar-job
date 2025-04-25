@@ -1,5 +1,12 @@
 # Changelog
 
+### [0.8.2](https://www.github.com/schummar/schummar-job/compare/v0.8.1...v0.8.2) (2025-04-25)
+
+
+### Bug Fixes
+
+* prevent TimeoutNegativeWarning ([0e37c91](https://www.github.com/schummar/schummar-job/commit/0e37c91eadc575844f78ec8515eea84da725705b))
+
 ### [0.8.1](https://www.github.com/schummar/schummar-job/compare/v0.8.0...v0.8.1) (2025-04-11)
 
 
