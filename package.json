@@ -22,7 +22,7 @@
   },
   "license": "ISC",
   "scripts": {
-    "build": "tsup src/index.ts --dts --format cjs,esm",
+    "build": "tsup src/index.ts --dts --format cjs,esm --sourcemap",
     "build:clean": "rimraf dist/**",
     "build:compile:esm": "tsc",
     "build:compile:cjs": "tsc -p tsconfig-cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",

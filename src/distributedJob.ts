@@ -401,7 +401,7 @@ export class DistributedJob<Data, Result, Progress> {
       this._options.log('debug', this.label, 'plan next run', date.toISOString());
       if (this.timeout) clearTimeout(this.timeout.handle);
       this.timeout = {
-        handle: setTimeout(() => this.next(), date.getTime() - now),
+        handle: setTimeout(() => this.next(), Math.max(date.getTime() - now, 0)),
         date,
       };
     }
