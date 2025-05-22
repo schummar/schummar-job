@@ -1,4 +1,4 @@
-import { Collection } from 'mongodb';
+import { Collection, type Filter } from 'mongodb';
 import { nanoid } from 'nanoid';
 import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
@@ -63,19 +63,33 @@ export class DistributedJob<Data, Result, Progress> {
     return { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, ...otherOptions };
   }
 
-  async execute(...[data, { at, delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data>): Promise<string> {
+  async execute(...[data, { at, delay = 0, executionId, replacePlanned } = {}]: ExecuteArgs<Data>): Promise<string> {
     const t = at ? new Date(at) : new Date();
     t.setMilliseconds(t.getMilliseconds() + delay);
 
+    const _id = executionId ?? nanoid();
+
     this._options.log('debug', this.label, 'schedule for execution', this.jobId, !at && !delay ? 'immediately' : `at ${t.toISOString()}`);
 
+    let filter: Filter<JobDbEntry<Data, Result, Progress>> = {
+      _id,
+    };
+
+    if (!executionId && replacePlanned) {
+      filter = {
+        jobId: this.jobId,
+        schedule: null,
+        state: 'planned',
+        lock: null,
+      };
+    }
+
     const col = await this.collection;
-    await col.updateOne(
-      {
-        _id: executionId,
-      },
+    const result = await col.findOneAndUpdate(
+      filter,
       {
         $setOnInsert: {
+          _id,
           jobId: this.jobId,
 
           schedule: null,
@@ -90,12 +104,15 @@ export class DistributedJob<Data, Result, Progress> {
           state: 'planned',
         },
       },
-      { upsert: true },
+      {
+        upsert: true,
+        returnDocument: 'after',
+      },
     );
 
-    this._options.log('debug', this.label, 'successfully scheduled for execution', executionId);
+    this._options.log('debug', this.label, 'successfully scheduled for execution', result!._id);
 
-    return executionId;
+    return result!._id;
   }
 
   async await(executionId: string): Promise<Result> {

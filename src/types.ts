@@ -79,6 +79,7 @@ export interface JobExecuteOptions {
   at?: Date | number | string;
   delay?: number;
   executionId?: string;
+  replacePlanned?: boolean;
 }
 
 export type ExecuteArgs<Data> = undefined extends Data

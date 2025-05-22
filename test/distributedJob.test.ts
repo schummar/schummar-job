@@ -11,7 +11,7 @@ declare module 'vitest' {
   }
 }
 
-const client = MongoClient.connect('mongodb://localhost', { directConnection: true });
+const client = MongoClient.connect(process.env.MONGO || 'mongodb://localhost', { directConnection: true });
 const db = client.then((client) => client.db('schummar-job-tests'));
 
 beforeEach(async (t) => {
@@ -159,14 +159,30 @@ test('null implementation', async (t) => {
 });
 
 test('executionId', async (t) => {
-  const job = t.scheduler.addJob('job0', () => {
+  const fn = vi.fn(() => {
     return 42;
   });
+  const job = t.scheduler.addJob('job0', fn);
 
   await job.execute(undefined, { executionId: 'foo' });
   await job.execute(undefined, { executionId: 'foo' });
 
   await expect(job.executeAndAwait(undefined, { executionId: 'foo' })).resolves.toBe(42);
+  expect(fn).toHaveBeenCalledTimes(1);
+});
+
+test('replacePlanned', async (t) => {
+  const fn = vi.fn(() => {
+    return 42;
+  });
+  const job = t.scheduler.addJob('job0', fn);
+
+  await job.execute();
+  await job.execute();
+  const result = await job.executeAndAwait(undefined, { replacePlanned: true });
+
+  expect(result).toBe(42);
+  expect(fn).toHaveBeenCalledTimes(2);
 });
 
 test('progress', async (t) => {
