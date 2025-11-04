@@ -343,6 +343,8 @@ export class DistributedJob<Data, Result, Progress> {
 
           this._options.log('debug', this.label, 'execute next done', job?._id);
         } catch (e) {
+          if (this.hasShutDown) return;
+
           const msg = e instanceof Error ? e.message : e instanceof Object ? JSON.stringify(e) : String(e);
           const retry = job.attempt < this._options.retryCount;
 
@@ -364,6 +366,8 @@ export class DistributedJob<Data, Result, Progress> {
           throw e;
         }
       } catch (e) {
+        if (this.hasShutDown) return;
+
         this._options.log('error', this.label, 'next failed', e);
       }
     });
