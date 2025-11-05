@@ -78,8 +78,6 @@ export class DistributedJob<Data, Result, Progress> {
 
     const _id = executionId ?? nanoid();
 
-    this._options.log('debug', this.label, 'schedule for execution', this.jobId, !at && !delay ? 'immediately' : `at ${t.toISOString()}`);
-
     let filter: Filter<JobDbEntry<Data, Result, Progress>> = {
       _id,
     };
@@ -119,7 +117,7 @@ export class DistributedJob<Data, Result, Progress> {
       },
     );
 
-    this._options.log('debug', this.label, 'successfully scheduled for execution', result!._id);
+    this._options.log('debug', this.label, 'scheduled for execution', result?._id, !at && !delay ? 'immediately' : `at ${t.toISOString()}`);
 
     return result!._id;
   }
@@ -282,7 +280,6 @@ export class DistributedJob<Data, Result, Progress> {
             $set: { lock: now },
           },
         );
-        this._options.log('debug', this.label, 'find next', job?._id);
 
         if (!job) {
           this.checkForNextRun();
@@ -295,7 +292,7 @@ export class DistributedJob<Data, Result, Progress> {
 
         try {
           const q = createQueue();
-          this._options.log('debug', this.label, 'execute next', job?._id);
+          this._options.log('debug', this.label, 'run', job?._id);
 
           let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
           let history: HistoryItem[] = [];
@@ -358,7 +355,7 @@ export class DistributedJob<Data, Result, Progress> {
           flush();
           await q.whenEmpty();
 
-          this._options.log('debug', this.label, 'execute next done', job?._id);
+          this._options.log('debug', this.label, 'done', job?._id);
         } catch (error) {
           if (this.hasShutDown) return;
 
