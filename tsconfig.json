@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "outDir": "dist/esm",
-    "module": "ES2020",
-    "moduleResolution": "node",
+    "module": "preserve",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "declaration": true,
 

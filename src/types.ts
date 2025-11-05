@@ -13,6 +13,7 @@ export interface HistoryItem {
   t: number;
   attempt: number;
   event: 'start' | 'complete' | 'error' | 'log';
+  level?: string;
   message?: string;
 }
 
@@ -33,12 +34,14 @@ export type JobDbEntry<Data, Result, Progress> = {
 
 export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any, any>> | { uri: string; db: string; collection: string }>;
 
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
+
 export interface SchedulerOptions {
   retryCount: number;
   retryDelay: number;
   lockDuration: number;
   lockCheckInterval: number;
-  log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<(typeof console)['log']>) => void;
+  log: (level: LogLevel, ...args: Parameters<(typeof console)['log']>) => void;
 }
 
 export interface LocalJobImplementation<Data, Result> {
@@ -51,13 +54,20 @@ export interface LocalJobImplementation<Data, Result> {
   ): MaybePromise<Result>;
 }
 
+export interface LoggerInstance {
+  (...message: unknown[]): void;
+}
+
+export interface Logger extends Record<LogLevel, LoggerInstance> {}
+
 export interface DistributedJobImplementation<Data, Result, Progress> {
   (
     data: Data,
     helpers: {
       job: JobDbEntry<Data, never, Progress>;
       setProgress(progress: Progress): void;
-      log(log: string): void;
+      logger: Logger;
+      flush: () => Promise<void>;
     },
   ): MaybePromise<Result>;
 }

@@ -11,7 +11,7 @@ declare module 'vitest' {
   }
 }
 
-const client = MongoClient.connect(process.env.MONGO || 'mongodb://localhost', { directConnection: true });
+const client = MongoClient.connect(import.meta.env.VITE_MONGODB_CONNECTION || 'mongodb://localhost', { directConnection: true });
 const db = client.then((client) => client.db('schummar-job-tests'));
 
 beforeEach(async (t) => {
@@ -188,12 +188,17 @@ test('replacePlanned', async (t) => {
 test('progress', async (t) => {
   let progress = 0;
 
-  const job = t.scheduler.addJob('job0', async (_data, { setProgress }) => {
-    await setProgress(0.3);
+  const job = t.scheduler.addJob('job0', async (_data, { setProgress, flush }) => {
+    setProgress(0.3);
+    flush();
     await poll(() => progress === 0.3);
-    await setProgress(0.6);
+
+    setProgress(0.6);
+    flush();
     await poll(() => progress === 0.6);
-    await setProgress(1);
+
+    setProgress(1);
+    flush();
     await poll(() => progress === 1);
   });
 
@@ -206,31 +211,37 @@ test('progress', async (t) => {
 });
 
 test('logs', async (t) => {
-  const job = t.scheduler.addJob('job0', async (_data, { log }) => {
-    log('foo');
-    log('bar');
+  const job = t.scheduler.addJob('job0', async (_data, { logger }) => {
+    logger.info('foo');
+    logger.debug('bar', { baz: 42 }, new Error('something went wrong'));
   });
 
   const id = await job.execute();
+  console.log(id);
   await job.await(id);
+  console.log('done');
   const entry = await job.getExecution(id);
 
-  expect(entry?.history.map((x) => [x.event, x.message])).toMatchInlineSnapshot(`
+  expect(entry?.history.map((x) => [x.event, x.level, x.message])).toMatchInlineSnapshot(`
     [
       [
         "start",
+        "info",
         null,
       ],
       [
         "log",
+        "info",
         "foo",
       ],
       [
         "log",
-        "bar",
+        "debug",
+        "bar {"baz":42} something went wrong",
       ],
       [
         "complete",
+        "info",
         null,
       ],
     ]
@@ -277,9 +288,9 @@ test('subscribe to executions', async (t) => {
   const listener = vi.fn();
   t.scheduler.onExecutionUpdate(listener);
 
-  const job = t.scheduler.addJob('job', (_, { setProgress, log }) => {
+  const job = t.scheduler.addJob('job', (_, { setProgress, logger }) => {
     setProgress(0.5);
-    log('foo');
+    logger.info('foo');
   });
 
   await job.executeAndAwait();

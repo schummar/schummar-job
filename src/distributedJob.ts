@@ -2,9 +2,18 @@ import { Collection, type Filter } from 'mongodb';
 import { nanoid } from 'nanoid';
 import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
+import errorToString from './errorToString';
 import { calcNextRun, MaybePromise, sleep } from './helpers';
 import { Scheduler } from './scheduler';
-import { DistributedJobImplementation, DistributedJobOptions, JobDbEntry, type ExecuteArgs, type HistoryItem } from './types';
+import {
+  DistributedJobImplementation,
+  DistributedJobOptions,
+  JobDbEntry,
+  type ExecuteArgs,
+  type HistoryItem,
+  type Logger,
+  type LogLevel,
+} from './types';
 
 export class DistributedJob<Data, Result, Progress> {
   static DEFAULT_MAX_PARALLEL = 1;
@@ -291,11 +300,20 @@ export class DistributedJob<Data, Result, Progress> {
           let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
           let history: HistoryItem[] = [];
 
-          const addHistory = (event: HistoryItem['event'], message?: string) => {
-            history.push({ t: Date.now(), attempt: job.attempt, event, message });
+          const addHistory = (event: HistoryItem['event'], level?: string, message?: string) => {
+            history.push({ t: Date.now(), attempt: job.attempt, event, level, message });
           };
 
-          const flush = () => {
+          const logger: Logger = new Proxy({} as Logger, {
+            get: (logger, level: string) => {
+              return (logger[level as LogLevel] ??= (...args: unknown[]) => {
+                const message = args.map(errorToString).join(' ');
+                addHistory('log', level, message);
+              });
+            },
+          });
+
+          const flush = async () => {
             if (Object.keys($set).length === 0 && history.length === 0) {
               return;
             }
@@ -305,23 +323,22 @@ export class DistributedJob<Data, Result, Progress> {
               ...(history.length > 0 && { $push: { history: { $each: history } } }),
             };
 
-            q.schedule(() => col.updateOne({ _id: job._id }, update));
             $set = {};
             history = [];
+            await q.schedule(() => col.updateOne({ _id: job._id }, update));
           };
 
           const flushInterval = setInterval(flush, 1000);
 
-          addHistory('start');
+          addHistory('start', 'info');
 
           const result = await this.implementation(job.data, {
             job,
             setProgress(progress) {
               $set.progress = progress;
             },
-            log(message) {
-              addHistory('log', message);
-            },
+            logger,
+            flush,
           });
 
           if (job.schedule) {
@@ -336,17 +353,17 @@ export class DistributedJob<Data, Result, Progress> {
             error: null,
           });
 
-          addHistory('complete');
+          addHistory('complete', 'info');
           clearInterval(flushInterval);
           flush();
           await q.whenEmpty();
 
           this._options.log('debug', this.label, 'execute next done', job?._id);
-        } catch (e) {
+        } catch (error) {
           if (this.hasShutDown) return;
 
-          const msg = e instanceof Error ? e.message : e instanceof Object ? JSON.stringify(e) : String(e);
           const retry = job.attempt < this._options.retryCount;
+          const errorString = errorToString(error);
 
           await col.updateOne(
             { _id: job._id },
@@ -358,12 +375,21 @@ export class DistributedJob<Data, Result, Progress> {
 
                 progress: 0,
                 state: retry ? 'planned' : 'error',
-                error: msg,
+                error: errorString,
+              },
+              $push: {
+                history: {
+                  t: Date.now(),
+                  attempt: job.attempt,
+                  event: 'error',
+                  level: 'error',
+                  message: errorString,
+                },
               },
             },
           );
 
-          throw e;
+          throw error;
         }
       } catch (e) {
         if (this.hasShutDown) return;
