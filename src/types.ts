@@ -42,6 +42,7 @@ export interface SchedulerOptions {
   lockDuration: number;
   lockCheckInterval: number;
   log: (level: LogLevel, ...args: Parameters<(typeof console)['log']>) => void;
+  forwardJobLogs: boolean;
 }
 
 export interface LocalJobImplementation<Data, Result> {
@@ -83,6 +84,7 @@ export interface LocalJobOptions<Data> {
 export interface DistributedJobOptions<Data> extends LocalJobOptions<Data> {
   lockDuration: number;
   lockCheckInterval: number;
+  forwardJobLogs: boolean;
 }
 
 export interface JobExecuteOptions {

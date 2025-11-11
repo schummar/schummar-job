@@ -42,10 +42,11 @@ export class Scheduler {
       lockDuration = Scheduler.DEFAULT_LOCK_DURATION,
       lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
       log = defaultLogger,
+      forwardJobLogs = false,
       ...otherOptions
     }: Partial<SchedulerOptions> = {},
   ) {
-    this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, ...otherOptions };
+    this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, forwardJobLogs, ...otherOptions };
 
     if (collection && 'uri' in collection) {
       this.collection = MongoClient.connect(collection.uri).then((client) => client.db(collection.db).collection(collection.collection));

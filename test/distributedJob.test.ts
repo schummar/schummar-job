@@ -248,6 +248,41 @@ test('logs', async (t) => {
   `);
 });
 
+test('forward logs', async (t) => {
+  const log = vi.fn();
+  const scheduler = new Scheduler(t.scheduler.collection, {
+    forwardJobLogs: true,
+    log: (level, ...args) => (level === 'debug' ? undefined : log(level, ...args)),
+  });
+
+  const job = scheduler.addJob('job0', async (_data, { logger }) => {
+    logger.info('info log');
+    logger.debug('debug log');
+    logger.error('bar', { baz: 42 }, new Error('something went wrong'));
+  });
+
+  await job.executeAndAwait();
+
+  expect(log.mock.calls).toMatchInlineSnapshot(`
+    [
+      [
+        "info",
+        "[schummar-job/job0]",
+        "info log",
+      ],
+      [
+        "error",
+        "[schummar-job/job0]",
+        "bar",
+        {
+          "baz": 42,
+        },
+        [Error: something went wrong],
+      ],
+    ]
+  `);
+});
+
 test('watch', async (t) => {
   const invocations = new Array<string>();
 

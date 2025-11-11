@@ -67,9 +67,10 @@ export class DistributedJob<Data, Result, Progress> {
     log = this.scheduler.options.log,
     lockDuration = this.scheduler.options.lockDuration,
     lockCheckInterval = this.scheduler.options.lockCheckInterval,
+    forwardJobLogs = this.scheduler.options.forwardJobLogs,
     ...otherOptions
   }: Partial<DistributedJobOptions<Data>>): DistributedJobOptions<Data> {
-    return { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, ...otherOptions };
+    return { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, forwardJobLogs, ...otherOptions };
   }
 
   async execute(...[data, { at, delay = 0, executionId, replacePlanned } = {}]: ExecuteArgs<Data>): Promise<string> {
@@ -305,7 +306,12 @@ export class DistributedJob<Data, Result, Progress> {
             get: (logger, level: string) => {
               return (logger[level as LogLevel] ??= (...args: unknown[]) => {
                 const message = args.map(errorToString).join(' ');
+
                 addHistory('log', level, message);
+
+                if (this._options.forwardJobLogs) {
+                  this.options.log?.(level as LogLevel, this.label, ...args);
+                }
               });
             },
           });
