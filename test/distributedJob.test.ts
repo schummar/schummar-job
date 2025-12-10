@@ -171,6 +171,23 @@ test('executionId', async (t) => {
   expect(fn).toHaveBeenCalledTimes(1);
 });
 
+test('getExecutionId', async (t) => {
+  const fn = vi.fn((x: number) => {
+    return x;
+  });
+  const job = t.scheduler.addJob('job0', fn, {
+    getExecutionId(x) {
+      return `value-${x}`;
+    },
+  });
+
+  await job.execute(42);
+  await job.execute(42);
+
+  await expect(job.executeAndAwait(42)).resolves.toBe(42);
+  expect(fn).toHaveBeenCalledTimes(1);
+});
+
 test('replacePlanned', async (t) => {
   const fn = vi.fn(() => {
     return 42;
@@ -217,9 +234,7 @@ test('logs', async (t) => {
   });
 
   const id = await job.execute();
-  console.log(id);
   await job.await(id);
-  console.log('done');
   const entry = await job.getExecution(id);
 
   expect(entry?.history.map((x) => [x.event, x.level, x.message])).toMatchInlineSnapshot(`

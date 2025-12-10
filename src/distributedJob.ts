@@ -77,7 +77,7 @@ export class DistributedJob<Data, Result, Progress> {
     const t = at ? new Date(at) : new Date();
     t.setMilliseconds(t.getMilliseconds() + delay);
 
-    const _id = executionId ?? nanoid();
+    const _id = executionId ?? this.options.getExecutionId?.(data as Data) ?? nanoid();
 
     let filter: Filter<JobDbEntry<Data, Result, Progress>> = {
       _id,

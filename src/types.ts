@@ -85,6 +85,7 @@ export interface DistributedJobOptions<Data> extends LocalJobOptions<Data> {
   lockDuration: number;
   lockCheckInterval: number;
   forwardJobLogs: boolean;
+  getExecutionId?: NoInfer<(data: Data) => string | undefined>;
 }
 
 export interface JobExecuteOptions {
