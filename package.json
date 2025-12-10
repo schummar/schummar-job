@@ -30,7 +30,6 @@
     "lint:oxlint": "oxlint src",
     "lint:tsc": "tsc --noEmit",
     "publint": "publint",
-    "prepublishOnly": "runp lint build :p publint",
     "test": "vitest run --coverage",
     "test:watch": "vitest"
   },
