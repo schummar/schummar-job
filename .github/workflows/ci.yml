@@ -63,6 +63,5 @@ jobs:
 
       - name: Release
         env:
-          NPM_CONFIG_PROVENANCE: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm nx release -y
