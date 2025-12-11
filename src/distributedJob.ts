@@ -397,7 +397,7 @@ export class DistributedJob<Data, Result, Progress> {
       } catch (e) {
         if (this.hasShutDown) return;
 
-        this._options.log('error', this.label, 'next failed', e);
+        this._options.log('error', this.label, 'job failed:', e);
       }
     });
   }
