@@ -1,9 +1,9 @@
 import { deepEqual } from 'fast-equals';
 import { MongoClient } from 'mongodb';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { Scheduler } from '../src';
+import { afterEach, assert, beforeEach, expect, test, vi, vitest } from 'vitest';
+import { JobDbEntry, Scheduler } from '../src';
 import { sleep } from '../src/helpers';
-import { poll } from './_helpers';
+import { poll, waitUntilJob } from './_helpers';
 
 declare module 'vitest' {
   export interface TestContext {
@@ -11,17 +11,17 @@ declare module 'vitest' {
   }
 }
 
-const client = MongoClient.connect(import.meta.env.VITE_MONGODB_CONNECTION || 'mongodb://localhost', { directConnection: true });
-const db = client.then((client) => client.db('schummar-job-tests'));
+const client = new MongoClient(import.meta.env.VITE_MONGODB_CONNECTION || 'mongodb://localhost/?directConnection=true');
+const db = client.db('schummar-job-tests');
 
 beforeEach(async (t) => {
-  t.scheduler = new Scheduler((await db).collection(t.task.name), { lockDuration: 100, log: () => undefined });
-  await t.scheduler.clearDB();
+  const collection = db.collection<JobDbEntry<any, any, any>>(t.task.name);
+  await collection.deleteMany({});
+  t.scheduler = new Scheduler(collection, { lockDuration: 100, log: () => undefined });
 });
 
 afterEach(async (t) => {
   await t.scheduler.shutdown();
-  await t.scheduler.clearDB();
 });
 
 test('simple', async (t) => {
@@ -62,29 +62,65 @@ test('error once', async (t) => {
 });
 
 test('error multiple', async (t) => {
-  expect.assertions(4);
+  const fn = vitest.fn(() => {
+    throw Error('testerror');
+  });
 
+  const job = t.scheduler.addJob('job0', fn, { retryDelay: 0, retryCount: 2 });
+
+  const id = await job.execute();
+  await expect(job.await(id)).rejects.toThrow('testerror');
+
+  const state = await job.getExecution(id);
+  expect(fn).toHaveBeenCalledTimes(3);
+  expect(state).toMatchObject({ attempt: 2, state: 'error' });
+});
+
+test('repeated error in scheduled job', async (t) => {
   const job = t.scheduler.addJob(
     'job0',
     () => {
-      expect(true).toBe(true); // TODO make nicer
       throw Error('testerror');
     },
-    { retryDelay: 0, retryCount: 2 },
+    { schedule: { milliseconds: 100 }, retryDelay: 100, retryCount: 2 },
+  );
+  job.options = { ...job.options, schedule: { hours: 1 } }; // prevent further scheduling
+
+  const id = (await job.schedule())?._id;
+  assert(id);
+
+  await expect(waitUntilJob(job, id, (j) => j.state === 'error' && j.attempt === 2, 5000)).resolves.toBeUndefined();
+
+  const [plannedJob] = await job.getPlanned();
+  expect(plannedJob).toMatchObject({
+    _id: expect.not.stringMatching(id),
+    jobId: 'job0',
+    attempt: 0,
+    state: 'planned',
+  });
+});
+
+test('scheduling in parallel creates only one job', async (t) => {
+  const job = t.scheduler.addJob(
+    'job0',
+    () => {
+      console.log('run');
+      // noop
+    },
+    { schedule: { hours: 1 } },
   );
 
-  await expect(job.executeAndAwait()).rejects.toThrow('testerror');
+  Array(5)
+    .fill(0)
+    .map(() => job.schedule());
+
+  const planned = await job.getPlanned();
+  expect(planned.length).toBe(1);
 });
 
 test('multiple workers', async (t) => {
-  expect.assertions(5);
-
-  const props = [
-    'job0',
-    () => {
-      expect(true).toBe(true); // TODO make nicer
-    },
-  ] as const;
+  const fn = vi.fn();
+  const props = ['job0', fn] as const;
 
   const job = t.scheduler.addJob(...props);
   t.scheduler.addJob(...props);
@@ -95,6 +131,8 @@ test('multiple workers', async (t) => {
       .fill(0)
       .map(() => job.executeAndAwait()),
   );
+
+  expect(fn).toHaveBeenCalledTimes(5);
 });
 
 test('schedule', async (t) => {
@@ -189,16 +227,16 @@ test('getExecutionId', async (t) => {
 });
 
 test('replacePlanned', async (t) => {
-  const fn = vi.fn(() => {
-    return 42;
+  const fn = vi.fn((x: number) => {
+    return x;
   });
   const job = t.scheduler.addJob('job0', fn);
 
-  await job.execute();
-  await job.execute();
-  const result = await job.executeAndAwait(undefined, { replacePlanned: true });
+  await job.execute(0);
+  await job.execute(1);
+  const result = await job.executeAndAwait(2, { replacePlanned: true });
 
-  expect(result).toBe(42);
+  expect(result).toBe(2);
   expect(fn.mock.calls.length).toBeLessThanOrEqual(2);
 });
 

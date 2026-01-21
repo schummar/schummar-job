@@ -1,7 +1,9 @@
-import { Collection, type Filter } from 'mongodb';
+import { Collection, MongoError, type Filter } from 'mongodb';
 import { nanoid } from 'nanoid';
 import assert from 'node:assert';
+import { isPromise } from 'node:util/types';
 import { createQueue, type Queue } from 'schummar-queue';
+import { createCancelable, type Cancelable } from './cancelable';
 import errorToString from './errorToString';
 import { calcNextRun, MaybePromise, sleep } from './helpers';
 import { Scheduler } from './scheduler';
@@ -11,6 +13,7 @@ import {
   JobDbEntry,
   type ExecuteArgs,
   type HistoryItem,
+  type JobListener,
   type Logger,
   type LogLevel,
 } from './types';
@@ -21,10 +24,7 @@ export class DistributedJob<Data, Result, Progress> {
   private q: Queue;
   private timeout?: { handle: NodeJS.Timeout; date: Date };
   private hasShutDown = false;
-  private subscribedExecutionIds = new Array<{
-    executionId: string;
-    listener: (job: JobDbEntry<Data, Result, Progress>) => void;
-  }>();
+  private subscribedExecutionIds = new Map<JobListener<Data, Result, Progress>, string>();
   private label;
   private _options: DistributedJobOptions<Data>;
 
@@ -40,7 +40,7 @@ export class DistributedJob<Data, Result, Progress> {
     this.q = createQueue({ parallel: this.options.maxParallel });
 
     if (implementation) {
-      this.schedule();
+      this.ensureSchedule();
       this.checkLocks();
       this.next();
     }
@@ -73,7 +73,8 @@ export class DistributedJob<Data, Result, Progress> {
     return { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, forwardJobLogs, ...otherOptions };
   }
 
-  async execute(...[data, { at, delay = 0, executionId, replacePlanned } = {}]: ExecuteArgs<Data>): Promise<string> {
+  async execute(...args: ExecuteArgs<Data>): Promise<string> {
+    const [data, { at, delay = 0, executionId, replacePlanned = false } = {}] = args;
     const t = at ? new Date(at) : new Date();
     t.setMilliseconds(t.getMilliseconds() + delay);
 
@@ -83,35 +84,42 @@ export class DistributedJob<Data, Result, Progress> {
       _id,
     };
 
+    let $setOnInsert: Partial<JobDbEntry<Data, Result, Progress>> = {
+      _id,
+      jobId: this.jobId,
+      isScheduled: false,
+      state: 'planned',
+      lock: null,
+      nextRun: t,
+      finishedOn: null,
+      attempt: 0,
+      data: data,
+      history: [],
+    };
+
+    let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
+
     if (!executionId && replacePlanned) {
       filter = {
         jobId: this.jobId,
-        schedule: null,
+        isScheduled: false,
         state: 'planned',
         lock: null,
+      };
+
+      delete $setOnInsert.nextRun;
+      delete $setOnInsert.data;
+
+      $set = {
+        nextRun: t,
+        data: data,
       };
     }
 
     const col = await this.collection;
     const result = await col.findOneAndUpdate(
       filter,
-      {
-        $setOnInsert: {
-          _id,
-          jobId: this.jobId,
-
-          schedule: null,
-          nextRun: t,
-          lock: null,
-          finishedOn: null,
-          attempt: 0,
-
-          data: data,
-          progress: 0,
-          history: [],
-          state: 'planned',
-        },
-      },
+      { $setOnInsert, $set },
       {
         upsert: true,
         returnDocument: 'after',
@@ -123,70 +131,61 @@ export class DistributedJob<Data, Result, Progress> {
     return result!._id;
   }
 
-  async await(executionId: string): Promise<Result> {
-    return new Promise<Result>((resolve, reject) => {
-      const listener = (job: JobDbEntry<Data, Result, Progress>) => {
-        if (job.state === 'completed') resolve(job.result);
-        else if (job.state === 'error') reject(Error(job.error));
-        else return;
-
-        this.subscribedExecutionIds = this.subscribedExecutionIds.filter((x) => x.listener !== listener);
-      };
-
-      this.subscribedExecutionIds.push({ executionId, listener });
-
-      (async () => {
-        const col = await this.collection;
-        const existing = await col.findOne({ _id: executionId });
-        if (existing) listener(existing);
-      })();
-    });
-  }
-
   async executeAndAwait(...args: Parameters<DistributedJob<Data, Result, Progress>['execute']>): Promise<Result> {
     const id = await this.execute(...args);
     return this.await(id);
   }
 
-  onProgress(executionId: string, callback: (progress: Progress) => void): () => void {
-    let lastValue: unknown;
-    const listener = (job: JobDbEntry<Data, Result, Progress>) => {
-      if (job.progress && job.progress !== lastValue) callback(job.progress);
-      lastValue = job.progress;
-
-      if (job.state === 'completed' || job.state === 'error') cancel();
+  watch(executionId: string, callback: (job: JobDbEntry<Data, Result, Progress>) => void): Cancelable {
+    const check = (job: JobDbEntry<Data, Result, Progress>) => {
+      callback(job);
+      if (job.state === 'completed' || job.state === 'error') {
+        cancel();
+      }
     };
 
-    const cancel = () => (this.subscribedExecutionIds = this.subscribedExecutionIds.filter((x) => x.listener !== listener));
+    const q = createQueue();
+    const listener = (job: JobDbEntry<Data, Result, Progress>) => {
+      q.schedule(() => check(job));
+    };
 
-    this.subscribedExecutionIds.push({ executionId, listener });
+    const cancel = () => {
+      this.subscribedExecutionIds.delete(listener);
+    };
 
-    (async () => {
+    this.subscribedExecutionIds.set(listener, executionId);
+
+    q.schedule(async () => {
       const col = await this.collection;
       const existing = await col.findOne({ _id: executionId });
-      if (existing) listener(existing);
-    })();
+      if (existing) check(existing);
+    });
 
-    return cancel;
+    return createCancelable(cancel);
   }
 
-  watch(executionId: string, callback: (job: JobDbEntry<Data, Result, Progress>) => void): () => void {
-    const listener = (job: JobDbEntry<Data, Result, Progress>) => {
-      callback(job);
-      if (job.state === 'completed' || job.state === 'error') cancel();
-    };
+  await(executionId: string): Promise<Result> {
+    return new Promise<Result>((resolve, reject) => {
+      this.watch(executionId, (job) => {
+        if (job.state === 'completed') {
+          resolve(job.result);
+        } else if (job.state === 'error') {
+          reject(Error(job.error));
+        }
+      });
+    });
+  }
 
-    const cancel = () => (this.subscribedExecutionIds = this.subscribedExecutionIds.filter((x) => x.listener !== listener));
+  onProgress(executionId: string, callback: (progress: Progress) => void): Cancelable {
+    let lastValue: unknown;
 
-    this.subscribedExecutionIds.push({ executionId, listener });
+    return this.watch(executionId, (job) => {
+      if (job.progress && job.progress !== lastValue) {
+        callback(job.progress);
+      }
 
-    (async () => {
-      const col = await this.collection;
-      const existing = await col.findOne({ _id: executionId });
-      if (existing) listener(existing);
-    })();
-
-    return cancel;
+      lastValue = job.progress;
+    });
   }
 
   async getExecution(executionId: string): Promise<JobDbEntry<Data, Result, Progress> | null> {
@@ -206,37 +205,66 @@ export class DistributedJob<Data, Result, Progress> {
     await this.q.whenEmpty();
   }
 
-  private async schedule(lastJob?: JobDbEntry<Data, Result, Progress>) {
+  async schedule(lastRun?: Date): Promise<void | JobDbEntry<Data, Result, Progress>> {
     const { schedule } = this._options;
-    const data = schedule && (schedule as { data?: Data }).data;
+    if (this.hasShutDown || !schedule) return;
 
-    if (!schedule) return;
+    try {
+      const data = (schedule as { data?: Data }).data;
+      const _id = this.options.getExecutionId?.(data as Data) ?? nanoid();
+      const col = isPromise(this.collection) ? await this.collection : this.collection;
 
-    const col = await this.collection;
-    await col.updateOne(
-      {
-        jobId: this.jobId,
-        schedule: { $ne: null },
-        state: 'planned',
-        lock: lastJob ? null : undefined,
-      },
-      {
-        $setOnInsert: {
-          _id: nanoid(),
-
-          schedule: schedule,
-          nextRun: calcNextRun(schedule, lastJob?.nextRun),
-          lock: null,
-          finishedOn: null,
-          attempt: 0,
-
-          data: data ?? null,
-          progress: 0,
+      const state = await col.findOneAndUpdate(
+        {
+          jobId: this.jobId,
+          isScheduled: true,
           state: 'planned',
         },
-      },
-      { upsert: true },
-    );
+        {
+          $setOnInsert: {
+            _id,
+            jobId: this.jobId,
+            isScheduled: true,
+            state: 'planned',
+            lock: null,
+            finishedOn: null,
+            attempt: 0,
+
+            data: data ?? null,
+            progress: 0,
+          },
+          $min: {
+            nextRun: calcNextRun(schedule, lastRun),
+          },
+        },
+        {
+          upsert: true,
+          returnDocument: 'after',
+        },
+      );
+
+      return state ?? undefined;
+    } catch (error) {
+      if (error instanceof MongoError && error.code === 11000) {
+        // Duplicate key => another instance scheduled it simultaneously
+        // repeating the call should return the existing one
+        return this.schedule(lastRun);
+      }
+
+      this._options.log('warn', this.label, 'Failed to schedule next run:', error);
+      setTimeout(() => this.schedule(), 10_000);
+    }
+  }
+
+  private async ensureSchedule() {
+    while (!this.hasShutDown) {
+      try {
+        await this.schedule();
+      } catch (error) {
+        this._options.log('warn', this.label, 'Failed to ensure schedule:', error);
+      }
+      await sleep(600_000);
+    }
   }
 
   private async checkLocks() {
@@ -267,7 +295,6 @@ export class DistributedJob<Data, Result, Progress> {
         }
 
         const col = await this.collection;
-
         const now = new Date();
 
         const job = await col.findOneAndUpdate(
@@ -291,47 +318,53 @@ export class DistributedJob<Data, Result, Progress> {
         assert(this.implementation);
         assert(job.state === 'planned');
 
-        try {
-          const q = createQueue();
-          this._options.log('debug', this.label, 'run', job?._id);
+        // Setup updater that will batch logs, progress updates, etc. and flush them periodically
+        const q = createQueue();
 
-          let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
-          let history: HistoryItem[] = [];
+        let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
+        let history: HistoryItem[] = [];
 
-          const addHistory = (event: HistoryItem['event'], level?: string, message?: string) => {
-            history.push({ t: Date.now(), attempt: job.attempt, event, level, message });
+        const addHistory = (event: HistoryItem['event'], level?: string, message?: string) => {
+          history.push({ t: Date.now(), attempt: job.attempt, event, level, message });
+        };
+
+        const logger: Logger = new Proxy({} as Logger, {
+          get: (logger, level: string) => {
+            return (logger[level as LogLevel] ??= (...args: unknown[]) => {
+              const message = args.map(errorToString).join(' ');
+
+              addHistory('log', level, message);
+
+              if (this._options.forwardJobLogs) {
+                this.options.log?.(level as LogLevel, this.label, ...args);
+              }
+            });
+          },
+        });
+
+        const flush = async () => {
+          if (Object.keys($set).length === 0 && history.length === 0) {
+            return;
+          }
+
+          const update = {
+            ...(Object.keys($set).length > 0 && { $set }),
+            ...(history.length > 0 && { $push: { history: { $each: history } } }),
           };
 
-          const logger: Logger = new Proxy({} as Logger, {
-            get: (logger, level: string) => {
-              return (logger[level as LogLevel] ??= (...args: unknown[]) => {
-                const message = args.map(errorToString).join(' ');
+          const historyLength = history.length;
+          await q.schedule(() => col.updateOne({ _id: job._id }, update));
+          history = history.slice(historyLength);
+        };
 
-                addHistory('log', level, message);
-
-                if (this._options.forwardJobLogs) {
-                  this.options.log?.(level as LogLevel, this.label, ...args);
-                }
-              });
-            },
+        const flushInterval = setInterval(() => {
+          flush().catch((e) => {
+            this._options.log('warn', this.label, 'Failed to flush job updates:', e);
           });
+        }, 1000);
 
-          const flush = async () => {
-            if (Object.keys($set).length === 0 && history.length === 0) {
-              return;
-            }
-
-            const update = {
-              ...(Object.keys($set).length > 0 && { $set }),
-              ...(history.length > 0 && { $push: { history: { $each: history } } }),
-            };
-
-            $set = {};
-            history = [];
-            await q.schedule(() => col.updateOne({ _id: job._id }, update));
-          };
-
-          const flushInterval = setInterval(flush, 1000);
+        try {
+          this._options.log('debug', this.label, 'run', job?._id);
 
           addHistory('start', 'info');
 
@@ -344,10 +377,6 @@ export class DistributedJob<Data, Result, Progress> {
             flush,
           });
 
-          if (job.schedule) {
-            await this.schedule(job);
-          }
-
           Object.assign($set, {
             lock: null,
             finishedOn: new Date(),
@@ -358,41 +387,32 @@ export class DistributedJob<Data, Result, Progress> {
 
           addHistory('complete', 'info');
           clearInterval(flushInterval);
-          flush();
-          await q.whenEmpty();
+          await flush();
 
           this._options.log('debug', this.label, 'done', job?._id);
         } catch (error) {
-          if (this.hasShutDown) return;
-
-          const retry = job.attempt < this._options.retryCount;
           const errorString = errorToString(error);
+          const shouldRetry = job.attempt < this._options.retryCount;
 
-          await col.updateOne(
-            { _id: job._id },
-            {
-              $set: {
-                nextRun: retry ? new Date(Date.now() + this._options.retryDelay) : job.nextRun,
-                lock: null,
-                attempt: retry ? job.attempt + 1 : job.attempt,
+          Object.assign($set, {
+            nextRun: shouldRetry ? new Date(Date.now() + this._options.retryDelay) : job.nextRun,
+            lock: null,
+            attempt: shouldRetry ? job.attempt + 1 : job.attempt,
+            progress: 0,
+            state: shouldRetry ? 'planned' : 'error',
+            error: errorString,
+          });
 
-                progress: 0,
-                state: retry ? 'planned' : 'error',
-                error: errorString,
-              },
-              $push: {
-                history: {
-                  t: Date.now(),
-                  attempt: job.attempt,
-                  event: 'error',
-                  level: 'error',
-                  message: errorString,
-                },
-              },
-            },
-          );
+          addHistory('error', 'error', errorString);
+          clearInterval(flushInterval);
+
+          await flush().catch((e) => {
+            this._options.log('warn', this.label, 'Failed to flush job updates after error:', e);
+          });
 
           throw error;
+        } finally {
+          await this.schedule(job.nextRun);
         }
       } catch (e) {
         if (this.hasShutDown) return;
@@ -421,7 +441,7 @@ export class DistributedJob<Data, Result, Progress> {
   }
 
   async receiveUpdate(job: JobDbEntry<Data, Result, Progress>): Promise<void> {
-    for (const { executionId, listener } of this.subscribedExecutionIds) {
+    for (const [listener, executionId] of this.subscribedExecutionIds) {
       if (executionId === job._id) listener(job);
     }
 
@@ -433,7 +453,7 @@ export class DistributedJob<Data, Result, Progress> {
   async changeStreamReconnected(): Promise<void> {
     this.checkForNextRun();
 
-    const executionIds = new Set(this.subscribedExecutionIds.map((x) => x.executionId));
+    const executionIds = new Set(this.subscribedExecutionIds.values());
     const col = await this.collection;
     const cursor = col.find<JobDbEntry<Data, Result, Progress>>({ _id: { $in: [...executionIds] } });
     for await (const job of cursor) {

@@ -1,6 +1,7 @@
-import { ChangeStream, Collection, MongoClient, type Filter } from 'mongodb';
+import { ChangeStream, Collection, MongoClient, type Filter, type IndexDescription } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
+import { indexHash } from './indexHash';
 import { LocalJob } from './localJob';
 import {
   DbConnection,
@@ -43,16 +44,73 @@ export class Scheduler {
       lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
       log = defaultLogger,
       forwardJobLogs = false,
+      createIndexes = true,
       ...otherOptions
     }: Partial<SchedulerOptions> = {},
   ) {
-    this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, forwardJobLogs, ...otherOptions };
+    this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, forwardJobLogs, createIndexes, ...otherOptions };
 
     if (collection && 'uri' in collection) {
-      this.collection = MongoClient.connect(collection.uri).then((client) => client.db(collection.db).collection(collection.collection));
+      this.collection = new MongoClient(collection.uri).db(collection.db).collection(collection.collection);
     } else {
       this.collection = collection as MaybePromise<Collection<JobDbEntry<any, any, any>>> | undefined;
     }
+
+    this.collection = this.collection && Promise.resolve(this.collection).then((coll) => this.ensureIndexes(coll));
+  }
+
+  private async ensureIndexes(coll: Collection<JobDbEntry<any, any, any>>) {
+    try {
+      if (this.options.createIndexes) {
+        await coll?.createIndexes(this.getIndexSpecs());
+      } else {
+        const existingIndexes = await coll?.indexes();
+        const existingHashes = new Set(existingIndexes?.map(indexHash));
+        const requiredIndexes = this.getIndexSpecs();
+
+        for (const index of requiredIndexes) {
+          const hash = indexHash(index);
+          if (existingHashes.has(hash)) {
+            continue;
+          }
+
+          this.options.log(
+            'warn',
+            this.label,
+            `Missing index detected: ${JSON.stringify(index)}. Please enable 'createIndexes' option to create it automatically.`,
+          );
+        }
+      }
+    } catch (error) {
+      this.options.log('error', this.label, 'Error ensuring indexes:', error);
+    }
+
+    return coll;
+  }
+
+  getIndexSpecs(): IndexDescription[] {
+    return [
+      {
+        key: {
+          jobId: 1,
+          nextRun: 1,
+        },
+        partialFilterExpression: {
+          $or: [{ state: 'planned' }, { lock: { $type: 'date' } }],
+        },
+      },
+
+      {
+        key: {
+          jobId: 1,
+        },
+        partialFilterExpression: {
+          isScheduled: true,
+          state: 'planned',
+        },
+        unique: true,
+      },
+    ];
   }
 
   private async watch() {

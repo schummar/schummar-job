@@ -21,7 +21,7 @@ export type JobDbEntry<Data, Result, Progress> = {
   _id: string;
   jobId: string;
 
-  schedule: Schedule | null;
+  isScheduled: boolean;
   nextRun: Date;
   lock: Date | null;
   finishedOn: Date | null;
@@ -43,6 +43,7 @@ export interface SchedulerOptions {
   lockCheckInterval: number;
   log: (level: LogLevel, ...args: Parameters<(typeof console)['log']>) => void;
   forwardJobLogs: boolean;
+  createIndexes: boolean;
 }
 
 export interface LocalJobImplementation<Data, Result> {
@@ -98,3 +99,7 @@ export interface JobExecuteOptions {
 export type ExecuteArgs<Data> = undefined extends Data
   ? [data?: Data, options?: JobExecuteOptions]
   : [data: Data, options?: JobExecuteOptions];
+
+export interface JobListener<Data, Result, Progress> {
+  (job: JobDbEntry<Data, Result, Progress>): void;
+}
