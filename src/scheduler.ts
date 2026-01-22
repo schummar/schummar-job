@@ -1,4 +1,4 @@
-import { ChangeStream, Collection, MongoClient, type Filter, type IndexDescription } from 'mongodb';
+import { ChangeStream, Collection, MongoClient, type Filter, type IndexDescriptionInfo } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
 import { indexHash } from './indexHash';
@@ -88,7 +88,7 @@ export class Scheduler {
     return coll;
   }
 
-  getIndexSpecs(): IndexDescription[] {
+  getIndexSpecs(): IndexDescriptionInfo[] {
     return [
       {
         key: {

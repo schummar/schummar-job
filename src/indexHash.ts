@@ -1,13 +1,19 @@
-import type { IndexDescription } from 'mongodb';
+import type { IndexDescriptionInfo } from 'mongodb';
 import { hasher } from 'node-object-hash';
 
-export function indexHash(index: IndexDescription): string {
+export function indexHash(index: IndexDescriptionInfo): string {
   if (index.name === '_id_') {
     return '_id_';
   }
 
-  const { key, ...rest } = index;
-  return JSON.stringify(key) + objectHash(rest);
+  const { key, name: _name, v: _v, ...rest } = index;
+
+  return (
+    JSON.stringify(key) +
+    objectHash({
+      partialFilterExpression: rest.partialFilterExpression,
+    })
+  );
 }
 
 const hash = hasher({ coerce: false });
