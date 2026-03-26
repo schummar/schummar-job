@@ -240,6 +240,29 @@ test('replacePlanned', async (t) => {
   expect(fn.mock.calls.length).toBeLessThanOrEqual(2);
 });
 
+test('replacePlanned sameData', async (t) => {
+  const fn = vi.fn((x: number) => {
+    return x;
+  });
+  const job = t.scheduler.addJob('job0', fn);
+
+  // Schedule two jobs with data=1 and one with data=2
+  const id1a = await job.execute(1, { delay: 100 });
+  const id1b = await job.execute(1, { delay: 100 });
+  const id2a = await job.execute(2, { delay: 100 });
+
+  const id1c = await job.execute(1, { replacePlanned: { match: 'data' } });
+  const id2b = await job.execute(2);
+  const id3 = await job.execute(3, { replacePlanned: { match: 'data' } });
+  await Promise.all([id1a, id1b, id1c, id2a, id2b, id3].map((id) => job.await(id)));
+
+  expect(id1c).toBeOneOf([id1a, id1b]);
+  expect(id2b).not.toBe(id2a);
+  expect(fn.mock.calls.filter(([x]) => x === 1).length).toBe(2);
+  expect(fn.mock.calls.filter(([x]) => x === 2).length).toBe(2);
+  expect(fn.mock.calls.filter(([x]) => x === 3).length).toBe(1);
+});
+
 test('progress', async (t) => {
   let progress = 0;
 

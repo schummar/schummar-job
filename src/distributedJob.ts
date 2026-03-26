@@ -107,6 +107,10 @@ export class DistributedJob<Data, Result, Progress> {
         lock: null,
       };
 
+      if (typeof replacePlanned === 'object' && replacePlanned.match === 'data') {
+        filter.data = data as any;
+      }
+
       delete $setOnInsert.nextRun;
       delete $setOnInsert.data;
 

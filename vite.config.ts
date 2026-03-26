@@ -11,6 +11,7 @@ export default defineConfig({
   test: {
     reporters: process.env.CI ? ['dot', 'github-actions', ['junit', { outputFile: 'test-results.xml' }]] : ['default'],
     coverage: {
+      provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],
     },
   },
