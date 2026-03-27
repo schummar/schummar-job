@@ -73,7 +73,7 @@ export class DistributedJob<Data, Result, Progress> {
     return { maxParallel, retryCount, retryDelay, log, lockDuration, lockCheckInterval, forwardJobLogs, ...otherOptions };
   }
 
-  async execute(...args: ExecuteArgs<Data>): Promise<string> {
+  async execute(...args: ExecuteArgs<Data, Result, Progress>): Promise<string> {
     const [data, { at, delay = 0, executionId, replacePlanned = false } = {}] = args;
     const t = at ? new Date(at) : new Date();
     t.setMilliseconds(t.getMilliseconds() + delay);
@@ -107,8 +107,8 @@ export class DistributedJob<Data, Result, Progress> {
         lock: null,
       };
 
-      if (typeof replacePlanned === 'object' && replacePlanned.match === 'data') {
-        filter.data = data as any;
+      if (typeof replacePlanned === 'object' && replacePlanned.match) {
+        filter.$and = [replacePlanned.match];
       }
 
       delete $setOnInsert.nextRun;

@@ -21,7 +21,7 @@ beforeEach(async (t) => {
 });
 
 afterEach(async (t) => {
-  await t.scheduler.shutdown();
+  await t.scheduler?.shutdown();
 });
 
 test('simple', async (t) => {
@@ -251,9 +251,9 @@ test('replacePlanned sameData', async (t) => {
   const id1b = await job.execute(1, { delay: 100 });
   const id2a = await job.execute(2, { delay: 100 });
 
-  const id1c = await job.execute(1, { replacePlanned: { match: 'data' } });
+  const id1c = await job.execute(1, { replacePlanned: { match: { data: 1 } } });
   const id2b = await job.execute(2);
-  const id3 = await job.execute(3, { replacePlanned: { match: 'data' } });
+  const id3 = await job.execute(3, { replacePlanned: { match: { data: 3 } } });
   await Promise.all([id1a, id1b, id1c, id2a, id2b, id3].map((id) => job.await(id)));
 
   expect(id1c).toBeOneOf([id1a, id1b]);

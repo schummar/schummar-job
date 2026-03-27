@@ -1,4 +1,4 @@
-import { Collection } from 'mongodb';
+import { Collection, Filter } from 'mongodb';
 import { MaybePromise } from './helpers';
 
 export type Schedule =
@@ -89,20 +89,20 @@ export interface DistributedJobOptions<Data> extends LocalJobOptions<Data> {
   getExecutionId?: NoInfer<(data: Data) => string | undefined>;
 }
 
-export interface JobExecuteOptions {
+export interface JobExecuteOptions<Data, Result, Progress> {
   at?: Date | number | string;
   delay?: number;
   executionId?: string;
-  replacePlanned?: boolean | ReplacePlannedOptions;
+  replacePlanned?: boolean | ReplacePlannedOptions<Data, Result, Progress>;
 }
 
-export interface ReplacePlannedOptions {
-  match?: 'data';
+export interface ReplacePlannedOptions<Data, Result, Progress> {
+  match?: Filter<JobDbEntry<Data, Result, Progress>>;
 }
 
-export type ExecuteArgs<Data> = undefined extends Data
-  ? [data?: Data, options?: JobExecuteOptions]
-  : [data: Data, options?: JobExecuteOptions];
+export type ExecuteArgs<Data, Result, Progress> = undefined extends Data
+  ? [data?: Data, options?: JobExecuteOptions<Data, Result, Progress>]
+  : [data: Data, options?: JobExecuteOptions<Data, Result, Progress>];
 
 export interface JobListener<Data, Result, Progress> {
   (job: JobDbEntry<Data, Result, Progress>): void;
