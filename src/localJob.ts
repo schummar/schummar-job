@@ -40,14 +40,14 @@ export class LocalJob<Data, Result> {
       while (!this.hasShutDown) {
         const nextRun = calcNextRun(schedule);
         await this.sleep(nextRun.getTime() - Date.now());
-        await this.execute(...([schedule.data] as ExecuteArgs<Data>));
+        await this.execute(...([schedule.data] as ExecuteArgs<Data, Result, never>));
       }
     } catch (e) {
       if (e !== CANCELED) throw e;
     }
   }
 
-  async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data>): Promise<Result> {
+  async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data, Result, never>): Promise<Result> {
     try {
       const existing = this.executionIds.get(executionId);
       if (existing) return existing;
