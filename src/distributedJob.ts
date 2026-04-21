@@ -224,7 +224,7 @@ export class DistributedJob<Data, Result, Progress> {
 
   async schedule(lastRun?: Date): Promise<void | JobDbEntry<Data, Result, Progress>> {
     const { schedule } = this.options;
-    if (this.hasShutDown || !schedule) return;
+    if (this.hasShutDown || !schedule || !this.options.scheduler?.collection) return;
 
     try {
       const data = (schedule as { data?: Data }).data;
@@ -285,15 +285,16 @@ export class DistributedJob<Data, Result, Progress> {
   }
 
   private async checkLocks() {
-    const col = await this.collection;
-
     while (!this.hasShutDown) {
-      try {
-        const threshold = new Date(Date.now() - this.options.lockDuration);
-        const res = await col.updateMany({ jobId: this.options.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
-        if (res.modifiedCount) this.options.log?.('info', this.label, 'Unlocked jobs:', res.modifiedCount);
-      } catch (e) {
-        this.options.log?.('warn', this.label, 'Failed to check locks:', e);
+      if (this.options.scheduler?.collection) {
+        try {
+          const col = await this.collection;
+          const threshold = new Date(Date.now() - this.options.lockDuration);
+          const res = await col.updateMany({ jobId: this.options.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
+          if (res.modifiedCount) this.options.log?.('info', this.label, 'Unlocked jobs:', res.modifiedCount);
+        } catch (e) {
+          this.options.log?.('warn', this.label, 'Failed to check locks:', e);
+        }
       }
 
       await sleep(this.options.lockCheckInterval);

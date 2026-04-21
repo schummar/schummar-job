@@ -191,30 +191,39 @@ export class Scheduler {
   ): DistributedJob<Data, Result, Progress>;
 
   addJob<Data = undefined, Result = undefined, Progress = number>(
+    job: DistributedJob<Data, Result, Progress>,
+  ): DistributedJob<Data, Result, Progress>;
+
+  addJob<Data = undefined, Result = undefined, Progress = number>(
     ...args:
       | [
           jobId: string,
           run?: DistributedJobImplementation<Data, Result, Progress>,
           options?: Omit<DistributedJobOptions<Data, Result, Progress>, 'jobId' | 'run' | 'scheduler'>,
         ]
+      | [job: DistributedJob<Data, Result, Progress>]
       | [options: Omit<DistributedJobOptions<Data, Result, Progress>, 'scheduler'>]
   ): DistributedJob<Data, Result, Progress> {
-    let options: DistributedJobOptions<Data, Result, Progress>;
+    let job: DistributedJob<Data, Result, Progress>;
 
     if (typeof args[0] === 'string') {
-      options = {
+      job = new DistributedJob({
         jobId: args[0],
         run: args[1],
         ...args[2],
-      };
+        scheduler: this,
+      });
+    } else if (args[0] instanceof DistributedJob) {
+      job = args[0];
+      job.updateOptions({ scheduler: this });
     } else {
-      options = { ...args[0] };
+      job = new DistributedJob({
+        ...args[0],
+        scheduler: this,
+      });
     }
 
-    options.scheduler = this;
-    const job = new DistributedJob(options);
     this.distributedJobs.add(job);
-
     this.hasShutDown = false;
     void this.watch();
 
@@ -228,24 +237,32 @@ export class Scheduler {
 
   addLocalJob<Data = undefined, Result = void>(options: Omit<LocalJobOptions<Data, Result>, 'scheduler'>): LocalJob<Data, Result>;
 
+  addLocalJob<Data = undefined, Result = void>(job: LocalJob<Data, Result>): LocalJob<Data, Result>;
+
   addLocalJob<Data = undefined, Result = void>(
     ...args:
       | [run: LocalJobImplementation<Data, Result>, options?: Omit<LocalJobOptions<Data, Result>, 'run' | 'scheduler'>]
+      | [job: LocalJob<Data, Result>]
       | [options: Omit<LocalJobOptions<Data, Result>, 'scheduler'>]
   ): LocalJob<Data, Result> {
-    let options: LocalJobOptions<Data, Result>;
+    let job: LocalJob<Data, Result>;
 
     if (typeof args[0] === 'function') {
-      options = {
+      job = new LocalJob({
         run: args[0],
         ...args[1],
-      };
+        scheduler: this,
+      });
+    } else if (args[0] instanceof LocalJob) {
+      job = args[0];
+      job.updateOptions({ scheduler: this });
     } else {
-      options = { ...args[0] };
+      job = new LocalJob({
+        ...args[0],
+        scheduler: this,
+      });
     }
 
-    options.scheduler = this;
-    const job = new LocalJob(options);
     this.localJobs.add(job);
 
     return job;

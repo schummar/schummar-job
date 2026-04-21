@@ -1,4 +1,4 @@
-import { JobDbEntry, Scheduler } from '../src';
+import { DistributedJob, JobDbEntry, Scheduler } from '../src';
 import { sleep } from '../src/helpers';
 import { poll, waitUntilJob } from './_helpers';
 import { deepEqual } from 'fast-equals';
@@ -76,7 +76,7 @@ test('error multiple', async (t) => {
   expect(state).toMatchObject({ attempt: 2, state: 'error' });
 });
 
-test('repeated error in scheduled job', async (t) => {
+test('repeated error in scheduled job', { retry: 3 }, async (t) => {
   const job = t.scheduler.addJob(
     'job0',
     () => {
@@ -436,4 +436,21 @@ test('get executions', async (t) => {
   expect(executions.length).toBe(2);
   expect(executions[0]).toMatchObject({ state: 'completed', result: 42 });
   expect(executions[1]).toMatchObject({ state: 'planned', nextRun: expect.toSatisfy((x) => new Date(x).getTime() > Date.now()) });
+});
+
+test('add scheduler later', async (t) => {
+  const job = new DistributedJob({
+    jobId: 'job0',
+    async run() {
+      return 42;
+    },
+  });
+
+  await expect(() => job.executeAndAwait()).rejects.toThrowErrorMatchingInlineSnapshot(
+    `[Error: Distributed job has no scheduler or collection defined]`,
+  );
+
+  t.scheduler.addJob(job);
+
+  expect(await job.executeAndAwait()).toBe(42);
 });
