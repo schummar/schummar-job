@@ -18,7 +18,7 @@ import assert from 'node:assert';
 import { isPromise } from 'node:util/types';
 import { createQueue, type Queue } from 'schummar-queue';
 
-export class DistributedJob<Data, Result, Progress> {
+export class DistributedJob<Data = undefined, Result = undefined, Progress = number> {
   static DEFAULT_MAX_PARALLEL = 1;
 
   private q: Queue;

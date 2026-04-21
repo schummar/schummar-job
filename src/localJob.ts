@@ -6,7 +6,7 @@ import { createQueue, Queue } from 'schummar-queue';
 
 const CANCELED = Symbol('canceled');
 
-export class LocalJob<Data, Result> {
+export class LocalJob<Data = undefined, Result = void> {
   static DEFAULT_MAX_PARALLEL = 1;
 
   private q: Queue;
