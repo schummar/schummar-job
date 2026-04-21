@@ -1,5 +1,5 @@
-import { parseCronExpression } from 'cron-schedule';
 import { Schedule } from './types';
+import { parseCronExpression } from 'cron-schedule';
 
 export type MaybePromise<T> = T | Promise<T>;
 

@@ -1,6 +1,6 @@
 import { Scheduler } from '../src';
-import { noopLogger, poll } from './_helpers';
-import { afterEach, beforeEach, expect, test, vi, vitest } from 'vitest';
+import { noopLogger } from './_helpers';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 declare module 'vitest' {
   export interface TestContext {

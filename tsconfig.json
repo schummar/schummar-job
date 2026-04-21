@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "outDir": "dist/esm",
     "module": "preserve",
     "moduleResolution": "bundler",
     "esModuleInterop": true,
@@ -12,7 +11,6 @@
     "target": "ES2015",
     "lib": ["ES2015", "DOM", "esnext.disposable"],
     "allowJs": true,
-    "downlevelIteration": true,
     "allowSyntheticDefaultImports": true,
     "noUncheckedIndexedAccess": true
   },

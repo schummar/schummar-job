@@ -1,8 +1,8 @@
+import { Scheduler, type LocalJobOptionsNormalized } from '.';
+import { calcNextRun } from './helpers';
+import { LocalJobOptions, type ExecuteArgs } from './types';
 import { nanoid } from 'nanoid';
 import { createQueue, Queue } from 'schummar-queue';
-import { Scheduler } from '.';
-import { calcNextRun } from './helpers';
-import { LocalJobImplementation, LocalJobOptions, type ExecuteArgs } from './types';
 
 const CANCELED = Symbol('canceled');
 
@@ -13,23 +13,33 @@ export class LocalJob<Data, Result> {
   private handles = new Set<() => void>();
   private hasShutDown = false;
   private executionIds = new Map<string, Promise<Result>>();
-  public readonly options: LocalJobOptions<Data>;
+  private _options: LocalJobOptionsNormalized<Data, Result>;
 
-  constructor(
-    public readonly scheduler: Scheduler,
-    public readonly implementation: LocalJobImplementation<Data, Result>,
-    {
-      maxParallel = LocalJob.DEFAULT_MAX_PARALLEL,
-      retryCount = scheduler.options.retryCount,
-      retryDelay = scheduler.options.retryDelay,
-      log = scheduler.options.log,
-      ...otherOptions
-    }: Partial<LocalJobOptions<Data>> = {},
-  ) {
-    this.options = { maxParallel, retryCount, retryDelay, log, ...otherOptions };
+  constructor(options: LocalJobOptions<Data, Result>) {
+    this._options = this.normalizeOptions(options);
     this.q = createQueue({ parallel: this.options.maxParallel });
 
-    this.schedule();
+    void this.schedule();
+  }
+
+  get options() {
+    return this._options;
+  }
+
+  updateOptions(options: Partial<LocalJobOptions<Data, Result>>) {
+    this._options = this.normalizeOptions({ ...this._options, ...options });
+  }
+
+  private normalizeOptions(options: LocalJobOptions<Data, Result>): LocalJobOptionsNormalized<Data, Result> {
+    return {
+      run: options.run,
+      scheduler: options.scheduler,
+      schedule: options.schedule,
+      maxParallel: options.maxParallel ?? LocalJob.DEFAULT_MAX_PARALLEL,
+      retryCount: options.retryCount ?? options.scheduler?.options.retryCount ?? Scheduler.DEFAULT_RETRY_COUNT,
+      retryDelay: options.retryDelay ?? options.scheduler?.options.retryDelay ?? Scheduler.DEFAULT_RETRY_DELAY,
+      log: options.log ?? options.scheduler?.options.log,
+    };
   }
 
   private async schedule() {
@@ -61,7 +71,7 @@ export class LocalJob<Data, Result> {
           error: unknown;
         while (!this.hasShutDown) {
           try {
-            return await this.q.schedule(() => this.implementation(data as Data, { error, attempt }));
+            return await this.q.schedule(() => this.options.run(data as Data, { error, attempt }));
           } catch (e) {
             error = e;
             if (!this.hasShutDown && attempt < this.options.retryCount) {
@@ -80,7 +90,7 @@ export class LocalJob<Data, Result> {
       return await promise;
     } catch (e) {
       if (e !== CANCELED) {
-        this.options.log('error', 'Error in job execution:', e);
+        this.options.log?.('error', 'Error in job execution:', e);
       }
       throw e;
     } finally {

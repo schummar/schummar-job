@@ -1,5 +1,6 @@
-import { Collection, Filter } from 'mongodb';
+import type { Scheduler } from '.';
 import { MaybePromise } from './helpers';
+import { Collection, Filter } from 'mongodb';
 
 export type Schedule =
   | { milliseconds: number }
@@ -47,13 +48,12 @@ export interface SchedulerOptions {
 }
 
 export interface LocalJobImplementation<Data, Result> {
-  (
-    data: Data,
-    helpers: {
-      attempt: number;
-      error: unknown;
-    },
-  ): MaybePromise<Result>;
+  (data: Data, helpers: LocalJobHelpers): MaybePromise<Result>;
+}
+
+export interface LocalJobHelpers {
+  attempt: number;
+  error: unknown;
 }
 
 export interface LoggerInstance {
@@ -63,31 +63,41 @@ export interface LoggerInstance {
 export interface Logger extends Record<LogLevel, LoggerInstance> {}
 
 export interface DistributedJobImplementation<Data, Result, Progress> {
-  (
-    data: Data,
-    helpers: {
-      job: JobDbEntry<Data, never, Progress>;
-      setProgress(progress: Progress): void;
-      logger: Logger;
-      flush: () => Promise<void>;
-    },
-  ): MaybePromise<Result>;
+  (data: Data, helpers: DistributedJobHelpers<Data, Progress>): MaybePromise<Result>;
 }
 
-export interface LocalJobOptions<Data> {
+export interface DistributedJobHelpers<Data, Progress> {
+  job: JobDbEntry<Data, never, Progress>;
+  setProgress(progress: Progress): void;
+  logger: Logger;
+  flush: () => Promise<void>;
+}
+
+export interface LocalJobOptions<Data, Result> {
+  run: LocalJobImplementation<Data, Result>;
+  scheduler?: Scheduler;
   schedule?: Schedule & (undefined extends Data ? { data?: Data } : { data: Data });
-  maxParallel: number;
-  retryCount: number;
-  retryDelay: number;
-  log: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<(typeof console)['log']>) => void;
+  maxParallel?: number;
+  retryCount?: number;
+  retryDelay?: number;
+  log?: (level: 'error' | 'warn' | 'info' | 'debug', ...args: Parameters<(typeof console)['log']>) => void;
 }
 
-export interface DistributedJobOptions<Data> extends LocalJobOptions<Data> {
-  lockDuration: number;
-  lockCheckInterval: number;
-  forwardJobLogs: boolean;
+export interface LocalJobOptionsNormalized<Data, Result> extends MakeRequired<LocalJobOptions<Data, Result>, 'retryDelay' | 'retryCount'> {}
+
+export interface DistributedJobOptions<Data, Result, Progress> extends Omit<LocalJobOptions<Data, Result>, 'run'> {
+  jobId: string;
+  run?: DistributedJobImplementation<Data, Result, Progress>;
+  lockDuration?: number;
+  lockCheckInterval?: number;
+  forwardJobLogs?: boolean;
   getExecutionId?: NoInfer<(data: Data) => string | undefined>;
 }
+
+export interface DistributedJobOptionsNormalized<Data, Result, Progress> extends MakeRequired<
+  DistributedJobOptions<Data, Result, Progress>,
+  'lockDuration' | 'lockCheckInterval' | 'forwardJobLogs' | 'retryDelay' | 'retryCount'
+> {}
 
 export interface JobExecuteOptions<Data, Result, Progress> {
   at?: Date | number | string;
@@ -107,3 +117,5 @@ export type ExecuteArgs<Data, Result, Progress> = undefined extends Data
 export interface JobListener<Data, Result, Progress> {
   (job: JobDbEntry<Data, Result, Progress>): void;
 }
+
+type MakeRequired<T, K extends keyof T> = T & { [P in K]-?: T[P] };

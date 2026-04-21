@@ -1,9 +1,9 @@
-import { deepEqual } from 'fast-equals';
-import { MongoClient } from 'mongodb';
-import { afterEach, assert, beforeEach, expect, test, vi, vitest } from 'vitest';
 import { JobDbEntry, Scheduler } from '../src';
 import { sleep } from '../src/helpers';
 import { poll, waitUntilJob } from './_helpers';
+import { deepEqual } from 'fast-equals';
+import { MongoClient } from 'mongodb';
+import { afterEach, assert, beforeEach, expect, test, vi, vitest } from 'vitest';
 
 declare module 'vitest' {
   export interface TestContext {
@@ -84,7 +84,8 @@ test('repeated error in scheduled job', async (t) => {
     },
     { schedule: { milliseconds: 100 }, retryDelay: 100, retryCount: 2 },
   );
-  job.options = { ...job.options, schedule: { hours: 1 } }; // prevent further scheduling
+
+  job.updateOptions({ schedule: { hours: 1 } });
 
   const id = (await job.schedule())?._id;
   assert(id);
@@ -112,7 +113,7 @@ test('scheduling in parallel creates only one job', async (t) => {
 
   Array(5)
     .fill(0)
-    .map(() => job.schedule());
+    .map(() => void job.schedule());
 
   const planned = await job.getPlanned();
   expect(planned.length).toBe(1);
@@ -268,15 +269,15 @@ test('progress', async (t) => {
 
   const job = t.scheduler.addJob('job0', async (_data, { setProgress, flush }) => {
     setProgress(0.3);
-    flush();
+    await flush();
     await poll(() => progress === 0.3);
 
     setProgress(0.6);
-    flush();
+    await flush();
     await poll(() => progress === 0.6);
 
     setProgress(1);
-    flush();
+    await flush();
     await poll(() => progress === 1);
   });
 

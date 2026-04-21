@@ -1,7 +1,6 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "defaultBase": "master",
-
   "release": {
     "git": {
       "tag": true,
@@ -16,5 +15,6 @@
         "createRelease": "github"
       }
     }
-  }
+  },
+  "analytics": false
 }

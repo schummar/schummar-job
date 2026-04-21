@@ -1,4 +1,3 @@
-import { ChangeStream, Collection, MongoClient, type Filter, type IndexDescriptionInfo } from 'mongodb';
 import { DistributedJob } from './distributedJob';
 import { MaybePromise, sleep } from './helpers';
 import { indexHash } from './indexHash';
@@ -12,6 +11,7 @@ import {
   LocalJobOptions,
   SchedulerOptions,
 } from './types';
+import { ChangeStream, Collection, MongoClient, type Filter, type IndexDescriptionInfo } from 'mongodb';
 
 const defaultLogger: SchedulerOptions['log'] = (level, ...args) => {
   if (level === 'error' || level === 'warn') {
@@ -140,7 +140,9 @@ export class Scheduler {
 
       this.stream.once('resumeTokenChanged', () => {
         this.options.log('debug', this.label, 'db watcher first token');
-        for (const job of this.distributedJobs) job.changeStreamReconnected();
+        for (const job of this.distributedJobs) {
+          void job.changeStreamReconnected();
+        }
         for (const listener of this.reconnectListeners) listener();
       });
 
@@ -155,8 +157,8 @@ export class Scheduler {
         );
         if ('fullDocument' in change && change.fullDocument) {
           for (const job of this.distributedJobs) {
-            if (job.jobId === change.fullDocument.jobId) {
-              job.receiveUpdate(change.fullDocument);
+            if (job.options.jobId === change.fullDocument.jobId) {
+              void job.receiveUpdate(change.fullDocument);
             }
           }
           for (const listener of this.executionListeners) {
@@ -174,31 +176,76 @@ export class Scheduler {
     delete this.stream;
 
     if (!this.hasShutDown) {
-      this.watch();
+      void this.watch();
     }
   }
 
   addJob<Data = undefined, Result = undefined, Progress = number>(
     jobId: string,
-    implementation?: DistributedJobImplementation<Data, Result, Progress>,
-    options?: Partial<DistributedJobOptions<Data>>,
-  ): DistributedJob<Data, Result, Progress> {
-    if (!this.collection) throw Error('No db set up!');
+    run?: DistributedJobImplementation<Data, Result, Progress>,
+    options?: Omit<DistributedJobOptions<Data, Result, Progress>, 'jobId' | 'run' | 'scheduler'>,
+  ): DistributedJob<Data, Result, Progress>;
 
-    const job = new DistributedJob(this, this.collection, jobId, implementation, options);
+  addJob<Data = undefined, Result = undefined, Progress = number>(
+    options: Omit<DistributedJobOptions<Data, Result, Progress>, 'scheduler'>,
+  ): DistributedJob<Data, Result, Progress>;
+
+  addJob<Data = undefined, Result = undefined, Progress = number>(
+    ...args:
+      | [
+          jobId: string,
+          run?: DistributedJobImplementation<Data, Result, Progress>,
+          options?: Omit<DistributedJobOptions<Data, Result, Progress>, 'jobId' | 'run' | 'scheduler'>,
+        ]
+      | [options: Omit<DistributedJobOptions<Data, Result, Progress>, 'scheduler'>]
+  ): DistributedJob<Data, Result, Progress> {
+    let options: DistributedJobOptions<Data, Result, Progress>;
+
+    if (typeof args[0] === 'string') {
+      options = {
+        jobId: args[0],
+        run: args[1],
+        ...args[2],
+      };
+    } else {
+      options = { ...args[0] };
+    }
+
+    options.scheduler = this;
+    const job = new DistributedJob(options);
     this.distributedJobs.add(job);
 
     this.hasShutDown = false;
-    this.watch();
+    void this.watch();
 
     return job;
   }
 
   addLocalJob<Data = undefined, Result = void>(
-    implementation: LocalJobImplementation<Data, Result>,
-    options?: Partial<LocalJobOptions<Data>>,
+    run: LocalJobImplementation<Data, Result>,
+    options?: Omit<LocalJobOptions<Data, Result>, 'run' | 'scheduler'>,
+  ): LocalJob<Data, Result>;
+
+  addLocalJob<Data = undefined, Result = void>(options: Omit<LocalJobOptions<Data, Result>, 'scheduler'>): LocalJob<Data, Result>;
+
+  addLocalJob<Data = undefined, Result = void>(
+    ...args:
+      | [run: LocalJobImplementation<Data, Result>, options?: Omit<LocalJobOptions<Data, Result>, 'run' | 'scheduler'>]
+      | [options: Omit<LocalJobOptions<Data, Result>, 'scheduler'>]
   ): LocalJob<Data, Result> {
-    const job = new LocalJob(this, implementation, options);
+    let options: LocalJobOptions<Data, Result>;
+
+    if (typeof args[0] === 'function') {
+      options = {
+        run: args[0],
+        ...args[1],
+      };
+    } else {
+      options = { ...args[0] };
+    }
+
+    options.scheduler = this;
+    const job = new LocalJob(options);
     this.localJobs.add(job);
 
     return job;
@@ -252,8 +299,7 @@ export class Scheduler {
 
   async shutdown(): Promise<void> {
     this.hasShutDown = true;
-    this.stream?.close();
-
+    await this.stream?.close();
     await this.clearJobs();
 
     this.options.log('info', this.label, 'shut down');
