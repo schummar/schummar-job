@@ -18,43 +18,18 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: volta-cli/action@v4
-
-      - name: Install dependencies
-        run: pnpm i --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - uses: supercharge/mongodb-github-action@1.12.0
+      - uses: voidzero-dev/setup-vp@v1
         with:
-          mongodb-version: 6.0
-          mongodb-replica-set: test-rs
+          cache: true
 
-      - name: Test
-        run: pnpm test
-
-      - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()
-        with:
-          files: ./test-results.xml
-
-      - name: 'Report Coverage'
-        uses: davelosert/vitest-coverage-report-action@v2
-        if: always()
-        with:
-          working-directory: .
-
-      - name: Build
-        run: pnpm build
-
-      - name: Publint
-        run: pnpm publint
+      - run: vp install
+      - run: vp check
+      - run: vp test
+      - run: vp build
 
       - name: Setup git user
         run: |
