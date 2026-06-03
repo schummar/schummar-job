@@ -11,6 +11,7 @@ export default defineConfig({
   staged: {
     '*': 'vp check --fix',
   },
+
   test: {
     reporters: process.env.CI ? ['dot', 'github-actions', ['junit', { outputFile: 'test-results.xml' }]] : ['default'],
     coverage: {
