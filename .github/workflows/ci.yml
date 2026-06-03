@@ -8,9 +8,6 @@ permissions:
   id-token: write # Required for OIDC
   contents: read
 
-env:
-  VOLTA_FEATURE_PNPM: 1
-
 jobs:
   release:
     name: Release
@@ -29,7 +26,7 @@ jobs:
       - run: vp install
       - run: vp check
       - run: vp test
-      - run: vp build
+      - run: vp pack
 
       - name: Setup git user
         run: |
