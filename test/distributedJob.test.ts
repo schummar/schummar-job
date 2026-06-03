@@ -116,9 +116,11 @@ test('scheduling in parallel creates only one job', async (t) => {
     { schedule: { hours: 1 } },
   );
 
-  Array(5)
-    .fill(0)
-    .map(() => void job.schedule());
+  await Promise.all(
+    Array(5)
+      .fill(0)
+      .map(() => job.schedule()),
+  );
 
   const planned = await job.getPlanned();
   expect(planned.length).toBe(1);

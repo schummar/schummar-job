@@ -15,7 +15,6 @@ import {
 import { MongoError, type Filter } from 'mongodb';
 import { nanoid } from 'nanoid';
 import assert from 'node:assert';
-import { isPromise } from 'node:util/types';
 import { createQueue, type Queue } from 'schummar-queue';
 
 export class DistributedJob<Data = undefined, Result = undefined, Progress = number> {
@@ -127,8 +126,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
       };
     }
 
-    const col = await this.collection;
-    const result = await col.findOneAndUpdate(
+    const result = await this.collection.findOneAndUpdate(
       filter,
       { $setOnInsert, $set },
       {
@@ -173,8 +171,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     this.subscribedExecutionIds.set(listener, executionId);
 
     void q.schedule(async () => {
-      const col = await this.collection;
-      const existing = await col.findOne({ _id: executionId });
+      const existing = await this.collection.findOne({ _id: executionId });
       if (existing) check(existing);
     });
 
@@ -206,8 +203,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   }
 
   async getExecution(executionId: string): Promise<JobDbEntry<Data, Result, Progress> | null> {
-    const col = await this.collection;
-    return await col.findOne({ _id: executionId });
+    return await this.collection.findOne({ _id: executionId });
   }
 
   async shutdown(): Promise<void> {
@@ -229,9 +225,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     try {
       const data = (schedule as { data?: Data }).data;
       const _id = this.options.getExecutionId?.(data as Data) ?? nanoid();
-      const col = isPromise(this.collection) ? await this.collection : this.collection;
 
-      const state = await col.findOneAndUpdate(
+      const state = await this.collection.findOneAndUpdate(
         {
           jobId: this.options.jobId,
           isScheduled: true,
@@ -288,9 +283,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     while (!this.hasShutDown) {
       if (this.options.scheduler?.collection) {
         try {
-          const col = await this.collection;
           const threshold = new Date(Date.now() - this.options.lockDuration);
-          const res = await col.updateMany({ jobId: this.options.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
+          const res = await this.collection.updateMany({ jobId: this.options.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
           if (res.modifiedCount) this.options.log?.('info', this.label, 'Unlocked jobs:', res.modifiedCount);
         } catch (e) {
           this.options.log?.('warn', this.label, 'Failed to check locks:', e);
@@ -312,10 +306,9 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           delete this.timeout;
         }
 
-        const col = await this.collection;
         const now = new Date();
 
-        const job = await col.findOneAndUpdate(
+        const job = await this.collection.findOneAndUpdate(
           {
             jobId: this.options.jobId,
             state: 'planned',
@@ -371,7 +364,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           };
 
           const historyLength = history.length;
-          await q.schedule(() => col.updateOne({ _id: job._id }, update));
+          await q.schedule(() => this.collection.updateOne({ _id: job._id }, update));
           history = history.slice(historyLength);
         };
 
@@ -443,9 +436,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   private async checkForNextRun(): Promise<void> {
     if (this.hasShutDown || !this.options.run) return;
 
-    const col = await this.collection;
-
-    const [next] = await col
+    const [next] = await this.collection
       .find({
         jobId: this.options.jobId,
         lock: null,
@@ -474,8 +465,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     void this.checkForNextRun();
 
     const executionIds = new Set(this.subscribedExecutionIds.values());
-    const col = await this.collection;
-    const cursor = col.find<JobDbEntry<Data, Result, Progress>>({ _id: { $in: [...executionIds] } });
+    const cursor = this.collection.find<JobDbEntry<Data, Result, Progress>>({ _id: { $in: [...executionIds] } });
     for await (const job of cursor) {
       await this.receiveUpdate(job);
     }
@@ -498,8 +488,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   }
 
   async getPlanned(): Promise<JobDbEntry<Data, Result, Progress>[]> {
-    const col = await this.collection;
-    return await col
+    return await this.collection
       .find({
         jobId: this.options.jobId,
         state: 'planned',

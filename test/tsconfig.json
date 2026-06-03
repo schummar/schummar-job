@@ -2,7 +2,7 @@
   "extends": "..",
   "compilerOptions": {
     "jsx": "react",
-    "types": ["vite-plus/client"]
+    "types": ["vite-plus/client", "node"]
   },
   "include": ["."]
 }

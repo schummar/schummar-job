@@ -313,15 +313,13 @@ export class Scheduler {
   async getExecutions(filter: Filter<JobDbEntry<any, any, any>>): Promise<JobDbEntry<any, any, any>[]> {
     if (!this.collection) throw Error('No db set up!');
 
-    const col = await this.collection;
-    return await col.find(filter).toArray();
+    return await this.collection.find(filter).toArray();
   }
 
   async clearDB(): Promise<void> {
     if (!this.collection) throw Error('No db set up!');
 
-    const col = await this.collection;
-    await col.deleteMany({});
+    await this.collection.deleteMany({});
 
     this.options.log('info', this.label, 'cleared db');
   }

@@ -12,7 +12,9 @@
     "lib": ["ES2017", "DOM", "esnext.disposable"],
     "allowJs": true,
     "allowSyntheticDefaultImports": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+
+    "types": ["node"]
   },
   "include": ["src"]
 }
