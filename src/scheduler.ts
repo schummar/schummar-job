@@ -1,9 +1,7 @@
 import { DistributedJob } from './distributedJob';
-import { MaybePromise, sleep } from './helpers';
-import { indexHash } from './indexHash';
+import { sleep } from './helpers';
 import { LocalJob } from './localJob';
 import {
-  DbConnection,
   DistributedJobImplementation,
   DistributedJobOptions,
   JobDbEntry,
@@ -11,7 +9,7 @@ import {
   LocalJobOptions,
   SchedulerOptions,
 } from './types';
-import { ChangeStream, Collection, MongoClient, type Filter, type IndexDescriptionInfo } from 'mongodb';
+import { ChangeStream, Collection, MongoClient, type ChangeStreamDocument, type Filter, type IndexDescriptionInfo } from 'mongodb';
 
 const defaultLogger: SchedulerOptions['log'] = (level, ...args) => {
   if (level === 'error' || level === 'warn') {
@@ -25,7 +23,8 @@ export class Scheduler {
   static DEFAULT_RETRY_COUNT = 10;
   static DEFAULT_RETRY_DELAY = 60 * 1000; // 1 minute
 
-  readonly collection?: MaybePromise<Collection<JobDbEntry<any, any, any>>>;
+  readonly client?: MongoClient;
+  readonly collection?: Collection<JobDbEntry<any, any, any>>;
   private distributedJobs = new Set<DistributedJob<any, any, any>>();
   private localJobs = new Set<LocalJob<any, any>>();
   private stream?: ChangeStream<JobDbEntry<any, any, any>>;
@@ -35,52 +34,44 @@ export class Scheduler {
   private reconnectListeners = new Set<() => void>();
   public readonly options: SchedulerOptions;
 
-  constructor(
-    collection?: DbConnection,
-    {
-      retryCount = Scheduler.DEFAULT_RETRY_COUNT,
-      retryDelay = Scheduler.DEFAULT_RETRY_DELAY,
-      lockDuration = Scheduler.DEFAULT_LOCK_DURATION,
-      lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
-      log = defaultLogger,
-      forwardJobLogs = false,
-      createIndexes = true,
-      ...otherOptions
-    }: Partial<SchedulerOptions> = {},
-  ) {
+  constructor({
+    client,
+    collection,
+    retryCount = Scheduler.DEFAULT_RETRY_COUNT,
+    retryDelay = Scheduler.DEFAULT_RETRY_DELAY,
+    lockDuration = Scheduler.DEFAULT_LOCK_DURATION,
+    lockCheckInterval = Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
+    log = defaultLogger,
+    forwardJobLogs = false,
+    createIndexes = true,
+    ...otherOptions
+  }: Partial<SchedulerOptions> = {}) {
     this.options = { retryCount, retryDelay, lockDuration, lockCheckInterval, log, forwardJobLogs, createIndexes, ...otherOptions };
 
-    if (collection && 'uri' in collection) {
-      this.collection = new MongoClient(collection.uri).db(collection.db).collection(collection.collection);
+    if (typeof client === 'string') {
+      this.client = new MongoClient(client);
     } else {
-      this.collection = collection as MaybePromise<Collection<JobDbEntry<any, any, any>>> | undefined;
+      this.client = client;
     }
 
-    this.collection = this.collection && Promise.resolve(this.collection).then((coll) => this.ensureIndexes(coll));
+    if (collection && 'collection' in collection) {
+      this.collection = this.client?.db(collection.db).collection(collection.collection);
+    } else {
+      this.collection = collection;
+    }
+
+    if (this.collection) {
+      void this.ensureIndexes(this.collection);
+    }
   }
 
   private async ensureIndexes(coll: Collection<JobDbEntry<any, any, any>>) {
+    if (!this.options.createIndexes) {
+      return;
+    }
+
     try {
-      if (this.options.createIndexes) {
-        await coll?.createIndexes(this.getIndexSpecs());
-      } else {
-        const existingIndexes = await coll?.indexes();
-        const existingHashes = new Set(existingIndexes?.map(indexHash));
-        const requiredIndexes = this.getIndexSpecs();
-
-        for (const index of requiredIndexes) {
-          const hash = indexHash(index);
-          if (existingHashes.has(hash)) {
-            continue;
-          }
-
-          this.options.log(
-            'warn',
-            this.label,
-            `Missing index detected: ${JSON.stringify(index)}. Please enable 'createIndexes' option to create it automatically.`,
-          );
-        }
-      }
+      await coll?.createIndexes(this.getIndexSpecs());
     } catch (error) {
       this.options.log('error', this.label, 'Error ensuring indexes:', error);
     }
@@ -114,40 +105,41 @@ export class Scheduler {
   }
 
   private async watch() {
+    if (!this.client || !this.collection) {
+      throw new Error('No db set up!');
+    }
+
     if (this.hasShutDown || this.stream) {
       return;
     }
 
     try {
-      const col = await this.collection;
-      if (!col) {
-        throw new Error('No db set up!');
-      }
-
-      if (this.hasShutDown || this.stream) {
-        return;
-      }
-
       this.options.log('debug', this.label, 'start db watcher');
-      this.stream = col.watch(
+
+      this.stream = this.client.watch(
         [
           {
-            $match: { operationType: { $in: ['insert', 'replace', 'update'] } },
+            $match: {
+              $or: [
+                { 'ns.db': this.collection.db.databaseName, 'ns.coll': this.collection.collectionName },
+                { operationType: 'rename', 'to.db': this.collection.db.databaseName, 'to.coll': this.collection.collectionName },
+              ],
+            },
           },
         ],
-        { fullDocument: 'updateLookup' },
+        {
+          fullDocument: 'updateLookup',
+        },
       );
 
+      // When starting watching or after connection loss, force refresh
       this.stream.once('resumeTokenChanged', () => {
         this.options.log('debug', this.label, 'db watcher first token');
-        for (const job of this.distributedJobs) {
-          void job.changeStreamReconnected();
-        }
-        for (const listener of this.reconnectListeners) listener();
+        this.notifyReconnect();
       });
 
-      // When starting watching or after connection loss, force refresh
-      const cursor = this.stream.stream();
+      const cursor = this.stream.stream() as AsyncIterable<ChangeStreamDocument<JobDbEntry<any, any, any>>>;
+
       for await (const change of cursor) {
         this.options.log(
           'debug',
@@ -155,14 +147,20 @@ export class Scheduler {
           'db watcher change received',
           'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument._id}` : undefined,
         );
-        if ('fullDocument' in change && change.fullDocument) {
-          for (const job of this.distributedJobs) {
-            if (job.options.jobId === change.fullDocument.jobId) {
-              void job.receiveUpdate(change.fullDocument);
+
+        switch (change.operationType) {
+          case 'insert':
+          case 'replace':
+          case 'update': {
+            if (change.fullDocument) {
+              this.notifyUpdate(change.fullDocument);
             }
+            break;
           }
-          for (const listener of this.executionListeners) {
-            listener(change.fullDocument);
+
+          case 'rename': {
+            this.options.log('debug', this.label, 'db watcher rename detected, refreshing jobs');
+            this.notifyReconnect();
           }
         }
       }
@@ -177,6 +175,28 @@ export class Scheduler {
 
     if (!this.hasShutDown) {
       void this.watch();
+    }
+  }
+
+  private notifyReconnect() {
+    for (const job of this.distributedJobs) {
+      void job.changeStreamReconnected();
+    }
+
+    for (const listener of this.reconnectListeners) {
+      listener();
+    }
+  }
+
+  private notifyUpdate(execution: JobDbEntry<any, any, any>) {
+    for (const job of this.distributedJobs) {
+      if (job.options.jobId === execution.jobId) {
+        void job.receiveUpdate(execution);
+      }
+    }
+
+    for (const listener of this.executionListeners) {
+      listener(execution);
     }
   }
 

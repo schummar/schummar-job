@@ -1,6 +1,6 @@
 import type { Scheduler } from '.';
 import { MaybePromise } from './helpers';
-import { Collection, Filter } from 'mongodb';
+import { Collection, Filter, type MongoClient } from 'mongodb';
 
 export type Schedule =
   | { milliseconds: number }
@@ -33,11 +33,11 @@ export type JobDbEntry<Data, Result, Progress> = {
   history: HistoryItem[];
 } & ({ state: 'planned' } | { state: 'completed'; result: Result } | { state: 'error'; error: string });
 
-export type DbConnection = MaybePromise<Collection<JobDbEntry<any, any, any>> | { uri: string; db: string; collection: string }>;
-
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
 export interface SchedulerOptions {
+  client?: MongoClient | string;
+  collection?: Collection<JobDbEntry<any, any, any>> | { db: string; collection: string };
   retryCount: number;
   retryDelay: number;
   lockDuration: number;

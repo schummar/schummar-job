@@ -17,7 +17,12 @@ const db = client.db('schummar-job-tests');
 beforeEach(async (t) => {
   const collection = db.collection<JobDbEntry<any, any, any>>(t.task.name);
   await collection.deleteMany({});
-  t.scheduler = new Scheduler(collection, { lockDuration: 100, log: () => undefined });
+  t.scheduler = new Scheduler({
+    client,
+    collection,
+    lockDuration: 100,
+    log: () => undefined,
+  });
 });
 
 afterEach(async (t) => {
@@ -177,7 +182,7 @@ test('restart', async (t) => {
   await t.scheduler.shutdown();
   const id = await job.execute();
 
-  const newScheduler = new Scheduler(t.scheduler.collection, { lockDuration: 100 });
+  const newScheduler = new Scheduler({ client, collection: t.scheduler.collection, lockDuration: 100 });
   const newJob = newScheduler.addJob('job0', () => {
     expect(true).toBe(true); // TODO make nicer
   });
@@ -327,7 +332,9 @@ test('logs', async (t) => {
 
 test('forward logs', async (t) => {
   const log = vi.fn();
-  const scheduler = new Scheduler(t.scheduler.collection, {
+  const scheduler = new Scheduler({
+    client,
+    collection: t.scheduler.collection,
     forwardJobLogs: true,
     log: (level, ...args) => (level === 'debug' ? undefined : log(level, ...args)),
   });

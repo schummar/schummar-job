@@ -9,7 +9,7 @@ declare module 'vite-plus/test' {
 }
 
 beforeEach((t) => {
-  t.scheduler = new Scheduler(undefined, { log: noopLogger });
+  t.scheduler = new Scheduler({ log: noopLogger });
 });
 
 afterEach(async (t) => {
