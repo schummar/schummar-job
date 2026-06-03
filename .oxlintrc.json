@@ -1,8 +1,0 @@
-{
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "@typescript-eslint/unbound-method": "off"
-  }
-}

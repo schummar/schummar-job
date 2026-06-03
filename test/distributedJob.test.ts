@@ -3,15 +3,15 @@ import { sleep } from '../src/helpers';
 import { poll, waitUntilJob } from './_helpers';
 import { deepEqual } from 'fast-equals';
 import { MongoClient } from 'mongodb';
-import { afterEach, assert, beforeEach, expect, test, vi, vitest } from 'vitest';
+import { afterEach, assert, beforeEach, expect, inject, test, vi, vitest } from 'vite-plus/test';
 
-declare module 'vitest' {
+declare module 'vite-plus/test' {
   export interface TestContext {
     scheduler: Scheduler;
   }
 }
 
-const client = new MongoClient(import.meta.env.VITE_MONGODB_CONNECTION || 'mongodb://localhost/?directConnection=true');
+const client = new MongoClient(inject('mongo').connectionString, { directConnection: true });
 const db = client.db('schummar-job-tests');
 
 beforeEach(async (t) => {
@@ -435,7 +435,10 @@ test('get executions', async (t) => {
 
   expect(executions.length).toBe(2);
   expect(executions[0]).toMatchObject({ state: 'completed', result: 42 });
-  expect(executions[1]).toMatchObject({ state: 'planned', nextRun: expect.toSatisfy((x) => new Date(x).getTime() > Date.now()) });
+  expect(executions[1]).toMatchObject({
+    state: 'planned',
+    nextRun: expect.toSatisfy((x) => new Date(x).getTime() > Date.now()),
+  });
 });
 
 test('add scheduler later', async (t) => {

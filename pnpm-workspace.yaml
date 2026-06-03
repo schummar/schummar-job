@@ -2,5 +2,8 @@ packages:
   - .
 allowBuilds:
   '@swc/core': true
+  cpu-features: true
   esbuild: true
   nx: true
+  protobufjs: true
+  ssh2: true

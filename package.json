@@ -8,7 +8,7 @@
     "name": "Marco Schumacher",
     "email": "marco@schumacher.dev"
   },
-  "repository": "schummar/schummar-job",
+  "repository": "git+https://github.com/schummar/schummar-job.git",
   "files": [
     "dist"
   ],
@@ -25,53 +25,37 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsdown",
-    "build:clean": "rimraf dist/**",
-    "build:compile:esm": "tsc",
-    "build:compile:cjs": "tsc -p tsconfig-cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
-    "lint": "runp lint:*",
-    "lint:oxlint": "oxlint --type-check",
-    "lint:oxfmt": "oxfmt --check",
-    "publint": "publint",
-    "test": "vitest run --coverage",
-    "test:watch": "vitest"
+    "build": "vp pack",
+    "lint": "vp fmt --check && vp lint --type-check",
+    "test": "vp test run --coverage",
+    "test:watch": "vp test watch"
   },
   "dependencies": {
     "node-object-hash": "^3.1.1"
   },
   "devDependencies": {
-    "@arethetypeswrong/core": "^0.18.3",
     "@nx/js": "^22.7.5",
     "@schummar/runp": "2.2.4",
+    "@testcontainers/mongodb": "^12.0.1",
     "@types/node": "25.9.1",
-    "@vitest/coverage-v8": "^4.1.8",
     "cron-schedule": "6.0.0",
     "fast-equals": "6.0.0",
     "mongodb": "^7.2.0",
     "nanoid": "5.1.11",
     "nx": "^22.7.5",
-    "oxfmt": "^0.53.0",
-    "oxlint": "^1.68.0",
-    "oxlint-tsgolint": "^0.23.0",
     "publint": "^0.3.21",
     "schummar-queue": "0.4.0",
-    "tsdown": "^0.22.1",
+    "testcontainers": "^12.0.1",
     "typescript": "6.0.3",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.8"
+    "vite-plus": "^0.1.24"
   },
   "peerDependencies": {
     "mongodb": ">=6.0.0"
   },
-  "volta": {
-    "node": "24.11.1",
-    "npm": "11.7.0",
-    "pnpm": "11.5.1"
-  },
   "packageManager": "pnpm@11.5.1",
   "inlinedDependencies": {
     "cron-schedule": "6.0.0",
-    "nanoid": "5.1.9",
+    "nanoid": "5.1.11",
     "schummar-queue": "0.4.0"
   }
 }

@@ -8,8 +8,8 @@
     "strict": true,
     "noImplicitReturns": true,
     "noImplicitAny": true,
-    "target": "ES2015",
-    "lib": ["ES2015", "DOM", "esnext.disposable"],
+    "target": "es2017",
+    "lib": ["ES2017", "DOM", "esnext.disposable"],
     "allowJs": true,
     "allowSyntheticDefaultImports": true,
     "noUncheckedIndexedAccess": true
