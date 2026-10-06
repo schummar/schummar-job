@@ -1,14 +1,34 @@
 {
   "name": "schummar-job",
   "version": "0.0.0",
-  "description": "",
-  "keywords": [],
+  "description": "Distributed job scheduler for Node.js backed by MongoDB: cron and interval schedules, retries, locking, deduplication, progress and live updates via change streams.",
+  "keywords": [
+    "background-jobs",
+    "change-streams",
+    "cron",
+    "distributed",
+    "job",
+    "job-queue",
+    "jobs",
+    "mongodb",
+    "queue",
+    "scheduler",
+    "typescript",
+    "worker"
+  ],
+  "homepage": "https://github.com/schummar/schummar-job#readme",
+  "bugs": {
+    "url": "https://github.com/schummar/schummar-job/issues"
+  },
   "license": "ISC",
   "author": {
     "name": "Marco Schumacher",
     "email": "marco@schumacher.dev"
   },
-  "repository": "git+https://github.com/schummar/schummar-job.git",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schummar/schummar-job.git"
+  },
   "files": [
     "dist"
   ],
