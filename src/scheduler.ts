@@ -257,7 +257,9 @@ export class Scheduler {
 
     this.distributedJobs.add(job);
     this.hasShutDown = false;
-    void this.watch();
+    if (this.client && this.collection) {
+      void this.watch();
+    }
 
     return job;
   }

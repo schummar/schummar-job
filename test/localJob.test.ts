@@ -1,5 +1,6 @@
 import { Scheduler } from '../src';
-import { noopLogger } from './_helpers';
+import { sleep } from '../src/helpers';
+import { noopLogger, poll, trackUnhandledRejections } from './_helpers';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
 
 declare module 'vite-plus/test' {
@@ -123,4 +124,28 @@ test('shutdown cancels pending executions', async (t) => {
 
   await expect(promise).rejects.toBeTypeOf('symbol');
   expect(fn).not.toHaveBeenCalled();
+});
+
+test('a failing scheduled job keeps its schedule', async (t) => {
+  using unhandled = trackUnhandledRejections();
+  const fn = vi.fn(() => {
+    throw new Error('job error');
+  });
+
+  t.scheduler.addLocalJob(fn, { schedule: { milliseconds: 10 }, retryCount: 0 });
+
+  await poll(() => fn.mock.calls.length >= 3, 1000);
+  expect(unhandled.errors).toEqual([]);
+});
+
+test('an invalid schedule is logged, not thrown', async () => {
+  using unhandled = trackUnhandledRejections();
+  const log = vi.fn();
+  const scheduler = new Scheduler({ log });
+
+  scheduler.addLocalJob(() => undefined, { schedule: { cron: 'invalid' } });
+  await sleep(50);
+
+  expect(log).toHaveBeenCalledWith('error', 'Error in job schedule:', expect.anything());
+  expect(unhandled.errors).toEqual([]);
 });

@@ -38,3 +38,14 @@ export function waitUntilJob<D, R, P>(
     }
   });
 }
+
+export function trackUnhandledRejections() {
+  const errors: unknown[] = [];
+  const handler = (error: unknown) => errors.push(error);
+  process.on('unhandledRejection', handler);
+
+  return {
+    errors,
+    [Symbol.dispose]: () => process.off('unhandledRejection', handler),
+  };
+}

@@ -50,10 +50,15 @@ export class LocalJob<Data = undefined, Result = void> {
       while (!this.hasShutDown) {
         const nextRun = calcNextRun(schedule);
         await this.sleep(nextRun.getTime() - Date.now());
-        await this.execute(...([schedule.data] as ExecuteArgs<Data, Result, never>));
+        // execute() already logs failures; one failed run must not end the schedule
+        await this.execute(...([schedule.data] as ExecuteArgs<Data, Result, never>)).catch((e: unknown) => {
+          if (e === CANCELED) throw e;
+        });
       }
     } catch (e) {
-      if (e !== CANCELED) throw e;
+      if (e !== CANCELED) {
+        this.options.log?.('error', 'Error in job schedule:', e);
+      }
     }
   }
 

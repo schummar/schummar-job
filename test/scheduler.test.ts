@@ -1,7 +1,7 @@
 import { DistributedJob, JobDbEntry, LocalJob, Scheduler } from '../src';
 import errorToString from '../src/errorToString';
 import { calcNextRun, sleep } from '../src/helpers';
-import { poll } from './_helpers';
+import { poll, trackUnhandledRejections } from './_helpers';
 import { MongoClient } from 'mongodb';
 import { afterAll, afterEach, beforeEach, expect, inject, test, vi } from 'vite-plus/test';
 
@@ -247,4 +247,15 @@ test('calcNextRun with cron', () => {
 
   const next = calcNextRun({ cron: '* * * * *' }, lastRun);
   expect(next.getTime() - lastRun.getTime()).toBe(30_000);
+});
+
+test('addJob without a db does not cause an unhandled rejection', async () => {
+  using unhandled = trackUnhandledRejections();
+  const scheduler = new Scheduler({ log: () => undefined });
+
+  scheduler.addJob('job0');
+  await sleep(100);
+
+  expect(unhandled.errors).toEqual([]);
+  await scheduler.shutdown();
 });

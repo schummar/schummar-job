@@ -153,7 +153,12 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
   watch(executionId: string, callback: (job: JobDbEntry<Data, Result, Progress>) => void): Cancelable {
     const check = (job: JobDbEntry<Data, Result, Progress>) => {
-      callback(job);
+      try {
+        callback(job);
+      } catch (error) {
+        this.options.log?.('error', this.label, 'Error in watch callback:', error);
+      }
+
       if (job.state === 'completed' || job.state === 'error') {
         cancel();
       }
@@ -171,8 +176,20 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     this.subscribedExecutionIds.set(listener, executionId);
 
     void q.schedule(async () => {
-      const existing = await this.collection.findOne({ _id: executionId });
-      if (existing) check(existing);
+      // If the execution already finished, no change event will come, so this lookup must succeed eventually
+      while (this.subscribedExecutionIds.has(listener)) {
+        let existing;
+        try {
+          existing = await this.collection.findOne({ _id: executionId });
+        } catch (error) {
+          this.options.log?.('warn', this.label, 'Failed to look up execution:', error);
+          await sleep(PICK_UP_RETRY_DELAY);
+          continue;
+        }
+
+        if (existing) check(existing);
+        return;
+      }
     });
 
     return createCancelable(cancel);
@@ -480,15 +497,22 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   private async checkForNextRun(): Promise<void> {
     if (this.hasShutDown || !this.options.run) return;
 
-    const [next] = await this.collection
-      .find({
-        jobId: this.options.jobId,
-        lock: null,
-        state: 'planned',
-      })
-      .sort({ nextRun: 1 })
-      .limit(1)
-      .toArray();
+    let next;
+    try {
+      [next] = await this.collection
+        .find({
+          jobId: this.options.jobId,
+          lock: null,
+          state: 'planned',
+        })
+        .sort({ nextRun: 1 })
+        .limit(1)
+        .toArray();
+    } catch (error) {
+      this.options.log?.('warn', this.label, 'Failed to look up next run:', error);
+      this.planAt(new Date(Date.now() + PICK_UP_RETRY_DELAY));
+      return;
+    }
 
     if (next) {
       void this.planNextRun(next);
@@ -508,10 +532,14 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   async changeStreamReconnected(): Promise<void> {
     void this.checkForNextRun();
 
-    const executionIds = new Set(this.subscribedExecutionIds.values());
-    const cursor = this.collection.find<JobDbEntry<Data, Result, Progress>>({ _id: { $in: [...executionIds] } });
-    for await (const job of cursor) {
-      await this.receiveUpdate(job);
+    try {
+      const executionIds = new Set(this.subscribedExecutionIds.values());
+      const cursor = this.collection.find<JobDbEntry<Data, Result, Progress>>({ _id: { $in: [...executionIds] } });
+      for await (const job of cursor) {
+        await this.receiveUpdate(job);
+      }
+    } catch (error) {
+      this.options.log?.('warn', this.label, 'Failed to refresh watched executions:', error);
     }
   }
 

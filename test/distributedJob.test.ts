@@ -1,6 +1,6 @@
 import { DistributedJob, JobDbEntry, Scheduler } from '../src';
 import { sleep } from '../src/helpers';
-import { poll, waitUntilJob } from './_helpers';
+import { poll, trackUnhandledRejections, waitUntilJob } from './_helpers';
 import { deepEqual } from 'fast-equals';
 import { MongoClient } from 'mongodb';
 import { afterEach, assert, beforeEach, expect, inject, test, vi, vitest } from 'vite-plus/test';
@@ -580,4 +580,45 @@ test('a failed pick-up is retried', async (t) => {
   job.updateOptions({ run: fn });
 
   await poll(() => fn.mock.calls.length > 0, 3000);
+});
+
+test('a failing lookup for the next run does not cause an unhandled rejection', async (t) => {
+  using unhandled = trackUnhandledRejections();
+  const fn = vi.fn();
+
+  vi.spyOn(t.scheduler.collection!, 'find').mockImplementationOnce(() => {
+    throw new Error('network error');
+  });
+  const job = t.scheduler.addJob('job0', fn);
+  await sleep(200);
+
+  await job.executeAndAwait();
+  expect(fn).toHaveBeenCalledTimes(1);
+  expect(unhandled.errors).toEqual([]);
+});
+
+test('await resolves even if the first lookup fails', async (t) => {
+  using unhandled = trackUnhandledRejections();
+  const job = t.scheduler.addJob('job0', () => 42);
+  const id = await job.execute();
+  await waitUntilJob(job, id, (x) => x.state === 'completed');
+
+  vi.spyOn(t.scheduler.collection!, 'findOne').mockRejectedValueOnce(new Error('network error'));
+
+  await expect(job.await(id)).resolves.toBe(42);
+  expect(unhandled.errors).toEqual([]);
+});
+
+test('a throwing watch callback does not cause an unhandled rejection', async (t) => {
+  using unhandled = trackUnhandledRejections();
+  const job = t.scheduler.addJob('job0', () => 42);
+  const id = await job.execute();
+
+  job.watch(id, () => {
+    throw new Error('callback error');
+  });
+
+  await job.await(id);
+  await sleep(100);
+  expect(unhandled.errors).toEqual([]);
 });
