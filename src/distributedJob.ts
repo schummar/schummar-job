@@ -345,29 +345,24 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             ],
           };
 
-          const failed = await this.collection.updateMany({ ...expired, attempt: { $gte: this.options.retryCount } }, [
+          // One update, so a run can't be released with an attempt beyond retryCount between two statements
+          const exhausted = { $gte: ['$attempt', this.options.retryCount] };
+          const res = await this.collection.updateMany(expired, [
             {
               $set: {
-                state: 'error',
-                error: 'Lock expired',
+                state: { $cond: [exhausted, 'error', '$state'] },
+                error: { $cond: [exhausted, 'Lock expired', '$error'] },
+                finishedOn: { $cond: [exhausted, '$$NOW', '$finishedOn'] },
+                attempt: { $cond: [exhausted, '$attempt', { $add: ['$attempt', 1] }] },
                 lock: null,
                 lockId: null,
-                finishedOn: '$$NOW',
                 history: historyWithError,
               },
             },
           ]);
 
-          const released = await this.collection.updateMany(expired, [
-            { $set: { lock: null, lockId: null, attempt: { $add: ['$attempt', 1] }, history: historyWithError } },
-          ]);
-
-          if (failed.modifiedCount || released.modifiedCount) {
-            this.options.log?.('info', this.label, 'Expired locks:', { failed: failed.modifiedCount, retried: released.modifiedCount });
-          }
-
-          if (failed.modifiedCount) {
-            await this.schedule();
+          if (res.modifiedCount) {
+            this.options.log?.('info', this.label, 'Expired locks:', res.modifiedCount);
           }
         } catch (e) {
           this.options.log?.('warn', this.label, 'Failed to check locks:', e);
@@ -619,6 +614,11 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   async receiveUpdate(job: JobDbEntry<Data, Result, Progress>): Promise<void> {
     for (const [listener, executionId] of this.subscribedExecutionIds) {
       if (executionId === job._id) listener(job);
+    }
+
+    // The instance that ended a scheduled run may not have the schedule, e.g. a worker expiring its lock
+    if (job.isScheduled && job.state !== 'planned' && this.options.schedule) {
+      void this.schedule();
     }
 
     // A locked execution is running somewhere. Its release produces another event.

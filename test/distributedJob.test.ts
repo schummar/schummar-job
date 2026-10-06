@@ -827,3 +827,25 @@ test('an idle run only writes heartbeats at the lockDuration pace', async (t) =>
     await scheduler.shutdown();
   }
 });
+
+test('a scheduled run ended by another instance is rescheduled by the owner', async (t) => {
+  const collection = t.scheduler.collection!;
+  const owner = new Scheduler({ client, collection, lockDuration: 100, lockCheckInterval: 60_000, log: () => undefined });
+
+  try {
+    const ownerJob = owner.addJob('job0', undefined, { schedule: { hours: 1 } });
+    const scheduled = await ownerJob.schedule();
+    assert(scheduled);
+
+    // The worker has no schedule of its own
+    t.scheduler.addJob('job0', () => undefined, { retryCount: 0, lockCheckInterval: 50 });
+    await collection.updateOne({ _id: scheduled._id }, { $set: { lock: new Date(0), lockId: 'dead worker' } });
+
+    await poll(async () => {
+      const [planned] = await ownerJob.getPlanned();
+      return planned && planned._id !== scheduled._id;
+    }, 3000);
+  } finally {
+    await owner.shutdown();
+  }
+});
