@@ -312,15 +312,46 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
       if (this.options.scheduler?.collection) {
         try {
           // Server time, so clock differences between instances don't release locks early
-          const res = await this.collection.updateMany(
+          const expired = {
+            jobId: this.options.jobId,
+            state: 'planned' as const,
+            lock: { $type: 'date' as const },
+            $expr: { $lt: ['$lock', { $subtract: ['$$NOW', this.options.lockDuration] }] },
+          };
+
+          // The worker died or hung, so this counts as a failed attempt. Otherwise a run that crashes
+          // the process would be retried forever.
+          const historyWithError = {
+            $concatArrays: [
+              { $ifNull: ['$history', []] },
+              [{ t: { $toLong: '$$NOW' }, attempt: '$attempt', event: 'error', level: 'error', message: 'Lock expired' }],
+            ],
+          };
+
+          const failed = await this.collection.updateMany({ ...expired, attempt: { $gte: this.options.retryCount } }, [
             {
-              jobId: this.options.jobId,
-              lock: { $type: 'date' },
-              $expr: { $lt: ['$lock', { $subtract: ['$$NOW', this.options.lockDuration] }] },
+              $set: {
+                state: 'error',
+                error: 'Lock expired',
+                lock: null,
+                lockId: null,
+                finishedOn: '$$NOW',
+                history: historyWithError,
+              },
             },
-            { $set: { lock: null, lockId: null } },
-          );
-          if (res.modifiedCount) this.options.log?.('info', this.label, 'Unlocked jobs:', res.modifiedCount);
+          ]);
+
+          const released = await this.collection.updateMany(expired, [
+            { $set: { lock: null, lockId: null, attempt: { $add: ['$attempt', 1] }, history: historyWithError } },
+          ]);
+
+          if (failed.modifiedCount || released.modifiedCount) {
+            this.options.log?.('info', this.label, 'Expired locks:', { failed: failed.modifiedCount, retried: released.modifiedCount });
+          }
+
+          if (failed.modifiedCount) {
+            await this.schedule();
+          }
         } catch (e) {
           this.options.log?.('warn', this.label, 'Failed to check locks:', e);
         }

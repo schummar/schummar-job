@@ -644,3 +644,30 @@ test('timeout fails a hung run and frees the worker', async (t) => {
   expect(firstSignal?.aborted).toBe(true);
   await expect(job.executeAndAwait()).resolves.toBe(42);
 });
+
+test('an expired lock counts as a failed attempt', async (t) => {
+  const collection = t.scheduler.collection!;
+  const expired = {
+    jobId: 'job0',
+    isScheduled: false,
+    state: 'planned' as const,
+    nextRun: new Date(0),
+    lock: new Date(0),
+    lockId: 'dead worker',
+    finishedOn: null,
+    data: undefined,
+    history: [],
+  };
+  await collection.insertMany([
+    { ...expired, _id: 'exhausted', attempt: 1 },
+    { ...expired, _id: 'retry', attempt: 0 },
+  ]);
+
+  const fn = vi.fn();
+  const job = t.scheduler.addJob('job0', fn, { retryCount: 1 });
+
+  await expect(job.await('exhausted')).rejects.toThrow('Lock expired');
+  await expect(job.await('retry')).resolves.toBeNull();
+  expect(fn).toHaveBeenCalledTimes(1);
+  expect(await collection.findOne({ _id: 'retry' })).toMatchObject({ attempt: 1 });
+});
