@@ -25,6 +25,7 @@ export type JobDbEntry<Data, Result, Progress> = {
   isScheduled: boolean;
   nextRun: Date;
   lock: Date | null;
+  lockId?: string | null;
   finishedOn: Date | null;
   attempt: number;
 

@@ -298,7 +298,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
               lock: { $type: 'date' },
               $expr: { $lt: ['$lock', { $subtract: ['$$NOW', this.options.lockDuration] }] },
             },
-            { $set: { lock: null } },
+            { $set: { lock: null, lockId: null } },
           );
           if (res.modifiedCount) this.options.log?.('info', this.label, 'Unlocked jobs:', res.modifiedCount);
         } catch (e) {
@@ -322,6 +322,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         }
 
         const now = new Date();
+        const lockId = nanoid();
 
         const job = await this.collection.findOneAndUpdate(
           {
@@ -330,7 +331,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             nextRun: { $lte: now },
             lock: null,
           },
-          { $currentDate: { lock: true } },
+          { $currentDate: { lock: true }, $set: { lockId } },
           { returnDocument: 'after' },
         );
 
@@ -367,6 +368,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           },
         });
 
+        let lockLost = false;
+
         // While running, every flush also refreshes the lock so checkLocks doesn't release it
         const flush = async ({ heartbeat = true } = {}) => {
           const update: UpdateFilter<JobDbEntry<any, any, any>> = {
@@ -379,9 +382,19 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             return;
           }
 
+          if (lockLost) {
+            return;
+          }
+
           const historyLength = history.length;
-          await q.schedule(() => this.collection.updateOne({ _id: job._id }, update));
+          // Only while we still hold the lock. Otherwise another worker may have taken over the run.
+          const res = await q.schedule(() => this.collection.updateOne({ _id: job._id, lockId }, update));
           history = history.slice(historyLength);
+
+          if (res.matchedCount === 0) {
+            lockLost = true;
+            this.options.log?.('warn', this.label, 'Lost lock, discarding updates for', job._id);
+          }
         };
 
         const flushInterval = setInterval(
@@ -409,6 +422,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
           Object.assign($set, {
             lock: null,
+            lockId: null,
             finishedOn: new Date(),
             state: 'completed',
             result,
@@ -427,6 +441,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           Object.assign($set, {
             nextRun: shouldRetry ? new Date(Date.now() + this.options.retryDelay) : job.nextRun,
             lock: null,
+            lockId: null,
             attempt: shouldRetry ? job.attempt + 1 : job.attempt,
             progress: 0,
             state: shouldRetry ? 'planned' : 'error',

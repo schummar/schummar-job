@@ -541,3 +541,30 @@ test('a job running longer than lockDuration is not started twice', async (t) =>
     await other.shutdown();
   }
 });
+
+test('a worker that lost its lock does not overwrite the newer attempt', async (t) => {
+  const collection = t.scheduler.collection!;
+  let finishStale!: () => void;
+  const stale = new Promise<void>((resolve) => (finishStale = resolve));
+  let started = false;
+  let finished = false;
+
+  const job = t.scheduler.addJob('job0', async () => {
+    started = true;
+    await stale;
+    finished = true;
+    return 'stale';
+  });
+
+  const id = await job.execute();
+  await poll(() => started);
+
+  // Another worker took over after the lock was released and finished the run
+  await collection.updateOne({ _id: id }, { $set: { state: 'completed', result: 'fresh', lock: null, lockId: 'other' } });
+
+  finishStale();
+  await poll(() => finished);
+  await sleep(200);
+
+  expect(await collection.findOne({ _id: id })).toMatchObject({ state: 'completed', result: 'fresh' });
+});
