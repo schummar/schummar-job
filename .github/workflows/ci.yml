@@ -44,5 +44,5 @@ jobs:
           DIST_TAG: ${{ github.ref_name == 'next' && 'next' || 'latest' }}
           PREID: ${{ github.ref_name == 'next' && 'beta' || '' }}
         run: |
-          vpx nx release -y --preid "$PREID" --skip-publish
+          vpx nx release --preid "$PREID" --skip-publish
           vpx nx release publish --tag "$DIST_TAG"
