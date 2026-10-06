@@ -876,3 +876,16 @@ test('shutdown stops the background loops', async (t) => {
     findOne.mockRestore();
   }
 });
+
+test('flush after the run ended does not write', async (t) => {
+  let lateFlush: (() => Promise<void>) | undefined;
+  const job = t.scheduler.addJob('job0', (_data, { flush }) => {
+    lateFlush = flush;
+  });
+
+  await job.executeAndAwait();
+  const updateOne = vi.spyOn(t.scheduler.collection!, 'updateOne');
+  await lateFlush!();
+
+  expect(updateOne).not.toHaveBeenCalled();
+});

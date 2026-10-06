@@ -95,7 +95,10 @@ export interface DistributedJobOptions<Data, Result, Progress> extends Omit<Loca
   lockCheckInterval?: number;
   forwardJobLogs?: boolean;
   getExecutionId?: NoInfer<(data: Data) => string | undefined>;
-  /** Fail a run that takes longer than this many milliseconds. A hung run otherwise blocks its worker forever. */
+  /**
+   * Fail a run that takes longer than this many milliseconds. A hung run otherwise blocks its worker forever.
+   * The run itself can't be stopped: it keeps going until it notices the aborted signal, but no longer counts.
+   */
   timeout?: number;
 }
 

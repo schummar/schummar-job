@@ -443,6 +443,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         });
 
         let lockLost = false;
+        // A timed out run can keep going and call flush; its writes would collide with the final one
+        let runEnded = false;
         const abortController = new AbortController();
         const aborted = new Promise<never>((_resolve, reject) => {
           abortController.signal.addEventListener('abort', () => reject(abortController.signal.reason as Error));
@@ -528,7 +530,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
                   $set.progress = progress;
                 },
                 logger,
-                flush: () => flush(),
+                flush: () => (runEnded ? Promise.resolve() : flush()),
                 signal: abortController.signal,
               }),
               aborted,
@@ -537,6 +539,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           } catch (error) {
             outcome = { ok: false, error };
           } finally {
+            runEnded = true;
             clearTimeout(timeoutHandle);
             clearInterval(flushInterval);
             clearInterval(heartbeatInterval);
