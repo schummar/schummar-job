@@ -259,3 +259,18 @@ test('addJob without a db does not cause an unhandled rejection', async () => {
   expect(unhandled.errors).toEqual([]);
   await scheduler.shutdown();
 });
+
+test('a job added later takes the scheduler defaults', async () => {
+  const log = vi.fn();
+  const scheduler = new Scheduler({ client, collection: db.collection('defaults'), retryCount: 3, lockDuration: 1234, log });
+
+  try {
+    const job = scheduler.addJob(new DistributedJob({ jobId: 'job0', retryDelay: 5 }));
+    expect(job.options).toMatchObject({ retryCount: 3, lockDuration: 1234, retryDelay: 5, log });
+
+    const localJob = scheduler.addLocalJob(new LocalJob({ run: () => undefined }));
+    expect(localJob.options).toMatchObject({ retryCount: 3, log });
+  } finally {
+    await scheduler.shutdown();
+  }
+});

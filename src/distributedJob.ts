@@ -30,9 +30,12 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   private hasShutDown = false;
   private subscribedExecutionIds = new Map<JobListener<Data, Result, Progress>, string>();
   private label: string;
+  // Normalizing from the options as given keeps unset ones falling back to a scheduler added later
+  private givenOptions: DistributedJobOptions<Data, Result, Progress>;
   private _options: DistributedJobOptionsNormalized<Data, Result, Progress>;
 
   constructor(options: DistributedJobOptions<Data, Result, Progress>) {
+    this.givenOptions = options;
     this._options = this.normalizeOptions(options);
     this.label = `[schummar-job/${this.options.jobId}]`;
     this.q = createQueue({ parallel: this.options.maxParallel });
@@ -48,7 +51,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   }
 
   updateOptions(options: Partial<Omit<DistributedJobOptions<Data, Result, Progress>, 'jobId'>> = {}): void {
-    this._options = this.normalizeOptions({ ...this.options, ...options });
+    this.givenOptions = { ...this.givenOptions, ...options };
+    this._options = this.normalizeOptions(this.givenOptions);
 
     // checkLocks and watchSchedule loop for the job's lifetime and already pick up the new options
     if (this.options.run && this.options.scheduler?.collection) {

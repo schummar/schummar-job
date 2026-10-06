@@ -13,9 +13,11 @@ export class LocalJob<Data = undefined, Result = void> {
   private handles = new Set<() => void>();
   private hasShutDown = false;
   private executionIds = new Map<string, Promise<Result>>();
+  private givenOptions: LocalJobOptions<Data, Result>;
   private _options: LocalJobOptionsNormalized<Data, Result>;
 
   constructor(options: LocalJobOptions<Data, Result>) {
+    this.givenOptions = options;
     this._options = this.normalizeOptions(options);
     this.q = createQueue({ parallel: this.options.maxParallel });
 
@@ -27,7 +29,8 @@ export class LocalJob<Data = undefined, Result = void> {
   }
 
   updateOptions(options: Partial<LocalJobOptions<Data, Result>>) {
-    this._options = this.normalizeOptions({ ...this._options, ...options });
+    this.givenOptions = { ...this.givenOptions, ...options };
+    this._options = this.normalizeOptions(this.givenOptions);
   }
 
   private normalizeOptions(options: LocalJobOptions<Data, Result>): LocalJobOptionsNormalized<Data, Result> {
