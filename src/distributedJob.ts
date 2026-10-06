@@ -447,7 +447,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         });
         aborted.catch(() => undefined);
 
-        // While running, every flush also refreshes the lock so checkLocks doesn't release it
+        // A heartbeat flush also refreshes the lock so checkLocks doesn't release it
         const flush = ({ heartbeat = true } = {}) =>
           q.schedule(async () => {
             if (lockLost) {
@@ -488,14 +488,13 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             }
           });
 
-        const flushInterval = setInterval(
-          () => {
-            flush().catch((e) => {
-              this.options.log?.('warn', this.label, 'Failed to flush job updates:', e);
-            });
-          },
-          Math.min(1000, this.options.lockDuration / 3),
-        );
+        const periodicFlush = (heartbeat: boolean) => () => {
+          flush({ heartbeat }).catch((e) => {
+            this.options.log?.('warn', this.label, 'Failed to flush job updates:', e);
+          });
+        };
+        const flushInterval = setInterval(periodicFlush(false), 1000);
+        const heartbeatInterval = setInterval(periodicFlush(true), this.options.lockDuration / 3);
 
         const { timeout } = this.options;
         const timeoutHandle =
@@ -538,6 +537,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           } finally {
             clearTimeout(timeoutHandle);
             clearInterval(flushInterval);
+            clearInterval(heartbeatInterval);
           }
 
           if (outcome.ok) {

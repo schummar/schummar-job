@@ -521,14 +521,14 @@ test('add scheduler later', async (t) => {
 
 test('a job running longer than lockDuration is not started twice', async (t) => {
   const collection = t.scheduler.collection!;
-  const other = new Scheduler({ client, collection, lockDuration: 200, lockCheckInterval: 50, log: () => undefined });
-  const scheduler = new Scheduler({ client, collection, lockDuration: 200, lockCheckInterval: 50, log: () => undefined });
+  const other = new Scheduler({ client, collection, lockDuration: 400, lockCheckInterval: 50, log: () => undefined });
+  const scheduler = new Scheduler({ client, collection, lockDuration: 400, lockCheckInterval: 50, log: () => undefined });
 
   try {
     let starts = 0;
     const run = async () => {
       starts++;
-      await sleep(1000);
+      await sleep(1200);
     };
 
     const job = scheduler.addJob('job0', run);
@@ -807,4 +807,23 @@ test('a failed flush is carried by the next one', async (t) => {
 
   const execution = await job.getExecution(id);
   expect(execution?.history.map((x) => x.message ?? x.event)).toEqual(['start', 'a', 'complete']);
+});
+
+test('an idle run only writes heartbeats at the lockDuration pace', async (t) => {
+  const scheduler = new Scheduler({ client, collection: t.scheduler.collection!, lockDuration: 60_000, log: () => undefined });
+
+  try {
+    let writes = -1;
+    const job = scheduler.addJob('job0', async () => {
+      const updateOne = vi.spyOn(scheduler.collection!, 'updateOne');
+      await sleep(2500);
+      writes = updateOne.mock.calls.length;
+    });
+
+    await job.executeAndAwait();
+    // Only the buffered 'start' history entry, no heartbeat-only writes
+    expect(writes).toBe(1);
+  } finally {
+    await scheduler.shutdown();
+  }
 });
