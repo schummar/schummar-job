@@ -849,3 +849,30 @@ test('a scheduled run ended by another instance is rescheduled by the owner', as
     await owner.shutdown();
   }
 });
+
+test('shutdown stops the background loops', async (t) => {
+  const timers = vi.spyOn(globalThis, 'setTimeout');
+  const findOne = vi.spyOn(t.scheduler.collection!, 'findOne').mockRejectedValue(new Error('network error'));
+
+  try {
+    const job = t.scheduler.addJob('job0', () => undefined, { lockCheckInterval: 60_000 });
+    void job.await('never');
+    await sleep(100);
+
+    const long = timers.mock.results
+      .filter((_result, i) => (timers.mock.calls[i]![1] ?? 0) >= 60_000)
+      .map((result) => result.value as unknown as { _destroyed: boolean });
+    expect(long.length).toBeGreaterThanOrEqual(2);
+
+    await job.shutdown();
+    await sleep(1500);
+    const lookups = findOne.mock.calls.length;
+    await sleep(1500);
+
+    expect(long.every((timer) => timer._destroyed)).toBe(true);
+    expect(findOne.mock.calls.length).toBe(lookups);
+  } finally {
+    timers.mockRestore();
+    findOne.mockRestore();
+  }
+});

@@ -28,6 +28,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   private timeout?: { handle: NodeJS.Timeout; date: Date };
   private scheduleRetry?: NodeJS.Timeout;
   private hasShutDown = false;
+  // Ends the background loops' sleeps, which would otherwise keep the process alive after shutdown
+  private shutdownController = new AbortController();
   private subscribedExecutionIds = new Map<JobListener<Data, Result, Progress>, string>();
   private label: string;
   // Normalizing from the options as given keeps unset ones falling back to a scheduler added later
@@ -185,13 +187,13 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
     void q.schedule(async () => {
       // If the execution already finished, no change event will come, so this lookup must succeed eventually
-      while (this.subscribedExecutionIds.has(listener)) {
+      while (this.subscribedExecutionIds.has(listener) && !this.hasShutDown) {
         let existing;
         try {
           existing = await this.collection.findOne({ _id: executionId });
         } catch (error) {
           this.options.log?.('warn', this.label, 'Failed to look up execution:', error);
-          await sleep(PICK_UP_RETRY_DELAY);
+          await sleep(PICK_UP_RETRY_DELAY, this.shutdownController.signal);
           continue;
         }
 
@@ -235,6 +237,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     this.options.log?.('info', this.label, 'shutting down');
 
     this.hasShutDown = true;
+    this.shutdownController.abort();
     clearTimeout(this.scheduleRetry);
     delete this.scheduleRetry;
     if (this.timeout) {
@@ -316,7 +319,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   private async watchSchedule() {
     while (!this.hasShutDown) {
       try {
-        await sleep(600_000);
+        await sleep(600_000, this.shutdownController.signal);
         await this.schedule();
       } catch (error) {
         this.options.log?.('warn', this.label, 'Failed to ensure schedule:', error);
@@ -369,7 +372,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         }
       }
 
-      await sleep(this.options.lockCheckInterval);
+      await sleep(this.options.lockCheckInterval, this.shutdownController.signal);
     }
   }
 
