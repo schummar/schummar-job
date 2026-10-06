@@ -97,3 +97,30 @@ test('executionId', async (t) => {
   await Promise.all([j0, j1]);
   await job.execute(undefined, { executionId: 'foo' });
 });
+
+test('delay', async (t) => {
+  const job = t.scheduler.addLocalJob(() => Date.now());
+
+  const start = Date.now();
+  const end = await job.execute(undefined, { delay: 100 });
+
+  expect(end - start).toBeGreaterThanOrEqual(95);
+});
+
+test('updateOptions', async (t) => {
+  const job = t.scheduler.addLocalJob(() => 'before');
+  job.updateOptions({ run: () => 'after' });
+
+  await expect(job.execute()).resolves.toBe('after');
+});
+
+test('shutdown cancels pending executions', async (t) => {
+  const fn = vi.fn();
+  const job = t.scheduler.addLocalJob(fn);
+
+  const promise = job.execute(undefined, { delay: 1000 });
+  await job.shutdown();
+
+  await expect(promise).rejects.toBeTypeOf('symbol');
+  expect(fn).not.toHaveBeenCalled();
+});

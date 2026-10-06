@@ -56,7 +56,7 @@
   "devDependencies": {
     "@nx/js": "^22.7.5",
     "@schummar/runp": "2.2.4",
-    "@testcontainers/mongodb": "^12.0.1",
+    "@testcontainers/mongodb": "^12.2.0",
     "@types/node": "25.9.1",
     "cron-schedule": "6.0.0",
     "fast-equals": "6.0.0",
@@ -65,7 +65,7 @@
     "nx": "^22.7.5",
     "publint": "^0.3.21",
     "schummar-queue": "0.4.0",
-    "testcontainers": "^12.0.1",
+    "testcontainers": "^12.2.0",
     "typescript": "6.0.3",
     "vite-plus": "^0.1.24"
   },
