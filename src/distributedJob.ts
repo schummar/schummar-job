@@ -49,9 +49,9 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   updateOptions(options: Partial<Omit<DistributedJobOptions<Data, Result, Progress>, 'jobId'>> = {}): void {
     this._options = this.normalizeOptions({ ...this.options, ...options });
 
+    // checkLocks and watchSchedule loop for the job's lifetime and already pick up the new options
     if (this.options.run && this.options.scheduler?.collection) {
       void this.schedule();
-      void this.checkLocks();
       this.next();
     }
   }

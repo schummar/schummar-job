@@ -737,3 +737,17 @@ test('updates to a running job do not make other instances poll', async (t) => {
     await observer.shutdown();
   }
 });
+
+test('updateOptions does not start additional background loops', async (t) => {
+  const job = t.scheduler.addJob('job0', () => undefined, { lockCheckInterval: 50 });
+  for (let i = 0; i < 5; i++) {
+    job.updateOptions({ run: () => undefined });
+  }
+
+  await sleep(50);
+  const lockChecks = vi.spyOn(t.scheduler.collection!, 'updateMany');
+  await sleep(500);
+
+  // One loop runs about 10 checks of 2 updates each in that time
+  expect(lockChecks.mock.calls.length).toBeLessThan(40);
+});
