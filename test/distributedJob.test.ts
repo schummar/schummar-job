@@ -568,3 +568,16 @@ test('a worker that lost its lock does not overwrite the newer attempt', async (
 
   expect(await collection.findOne({ _id: id })).toMatchObject({ state: 'completed', result: 'fresh' });
 });
+
+test('a failed pick-up is retried', async (t) => {
+  const fn = vi.fn();
+  const job = t.scheduler.addJob('job0');
+  await job.execute();
+  // Let the insert's change event pass, so only the failing pick-up below can start the run
+  await sleep(300);
+
+  vi.spyOn(t.scheduler.collection!, 'findOneAndUpdate').mockRejectedValueOnce(new Error('network error'));
+  job.updateOptions({ run: fn });
+
+  await poll(() => fn.mock.calls.length > 0, 3000);
+});

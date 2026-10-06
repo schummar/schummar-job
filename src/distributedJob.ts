@@ -17,6 +17,8 @@ import { nanoid } from 'nanoid';
 import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
 
+const PICK_UP_RETRY_DELAY = 1000;
+
 export class DistributedJob<Data = undefined, Result = undefined, Progress = number> {
   static DEFAULT_MAX_PARALLEL = 1;
 
@@ -324,16 +326,24 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         const now = new Date();
         const lockId = nanoid();
 
-        const job = await this.collection.findOneAndUpdate(
-          {
-            jobId: this.options.jobId,
-            state: 'planned',
-            nextRun: { $lte: now },
-            lock: null,
-          },
-          { $currentDate: { lock: true }, $set: { lockId } },
-          { returnDocument: 'after' },
-        );
+        let job;
+        try {
+          job = await this.collection.findOneAndUpdate(
+            {
+              jobId: this.options.jobId,
+              state: 'planned',
+              nextRun: { $lte: now },
+              lock: null,
+            },
+            { $currentDate: { lock: true }, $set: { lockId } },
+            { returnDocument: 'after' },
+          );
+        } catch (error) {
+          // Without a retry nothing would wake this worker up again until the next change event
+          this.options.log?.('warn', this.label, 'Failed to pick up next job:', error);
+          this.planAt(new Date(Date.now() + PICK_UP_RETRY_DELAY));
+          return;
+        }
 
         if (!job) {
           void this.checkForNextRun();
@@ -506,10 +516,14 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
   }
 
   private async planNextRun(job: JobDbEntry<Data, Result, Progress>): Promise<void> {
+    this.planAt(job.nextRun);
+  }
+
+  private planAt(nextRun: Date): void {
     if (this.hasShutDown || !this.options.run) return;
 
     const now = Date.now();
-    const date = new Date(Math.min(job.nextRun.getTime(), now + 60 * 60 * 1000));
+    const date = new Date(Math.min(nextRun.getTime(), now + 60 * 60 * 1000));
 
     if (!this.timeout || date.getTime() < this.timeout.date.getTime()) {
       this.options.log?.('debug', this.label, 'plan next run', date.toISOString());
