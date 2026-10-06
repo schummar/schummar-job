@@ -149,3 +149,16 @@ test('an invalid schedule is logged, not thrown', async () => {
   expect(log).toHaveBeenCalledWith('error', 'Error in job schedule:', expect.anything());
   expect(unhandled.errors).toEqual([]);
 });
+
+test('executionId deduplicates while running', async (t) => {
+  const fn = vi.fn(() => sleep(100));
+  const job = t.scheduler.addLocalJob(fn);
+
+  const first = job.execute(undefined, { executionId: 'x' });
+  const second = job.execute(undefined, { executionId: 'x' });
+  await sleep(10);
+  const third = job.execute(undefined, { executionId: 'x' });
+  await Promise.all([first, second, third]);
+
+  expect(fn).toHaveBeenCalledTimes(1);
+});

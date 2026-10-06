@@ -63,11 +63,13 @@ export class LocalJob<Data = undefined, Result = void> {
   }
 
   async execute(...[data, { delay = 0, executionId = nanoid() } = {}]: ExecuteArgs<Data, Result, never>): Promise<Result> {
-    try {
-      const existing = this.executionIds.get(executionId);
-      if (existing) return existing;
+    const existing = this.executionIds.get(executionId);
+    if (existing) return existing;
 
-      const promise = (async () => {
+    let promise: Promise<Result> | undefined;
+
+    try {
+      promise = (async () => {
         if (delay > 0) {
           await this.sleep(delay);
         }
@@ -99,7 +101,9 @@ export class LocalJob<Data = undefined, Result = void> {
       }
       throw e;
     } finally {
-      this.executionIds.delete(executionId);
+      if (this.executionIds.get(executionId) === promise) {
+        this.executionIds.delete(executionId);
+      }
     }
   }
 
