@@ -764,3 +764,26 @@ test('failing schedule() calls share one retry timer', async (t) => {
   expect(timers.mock.calls.filter(([, ms]) => ms === 10_000)).toHaveLength(1);
   timers.mockRestore();
 });
+
+test('replacePlanned works in parallel without createIndexes', async (t) => {
+  const collection = db.collection<JobDbEntry<any, any, any>>(t.task.name);
+  await collection.drop().catch(() => undefined);
+  await db
+    .collection(`${t.task.name}_locks`)
+    .drop()
+    .catch(() => undefined);
+
+  const scheduler = new Scheduler({ client, collection, createIndexes: false, log: () => undefined });
+  try {
+    const job = scheduler.addJob<number>('job0');
+    await Promise.all(
+      Array(10)
+        .fill(0)
+        .map((_, i) => job.execute(i, { delay: 10_000, replacePlanned: true })),
+    );
+
+    expect(await job.getPlanned()).toHaveLength(1);
+  } finally {
+    await scheduler.shutdown();
+  }
+});
