@@ -25,6 +25,7 @@ export class Scheduler {
 
   readonly client?: MongoClient;
   readonly collection?: Collection<JobDbEntry<any, any, any>>;
+  readonly indexesReady: Promise<void>;
   private distributedJobs = new Set<DistributedJob<any, any, any>>();
   private localJobs = new Set<LocalJob<any, any>>();
   private stream?: ChangeStream<JobDbEntry<any, any, any>>;
@@ -60,23 +61,19 @@ export class Scheduler {
       this.collection = collection;
     }
 
-    if (this.collection) {
-      void this.ensureIndexes(this.collection);
-    }
+    this.indexesReady = this.collection ? this.ensureIndexes(this.collection) : Promise.resolve();
   }
 
-  private async ensureIndexes(coll: Collection<JobDbEntry<any, any, any>>) {
+  private async ensureIndexes(coll: Collection<JobDbEntry<any, any, any>>): Promise<void> {
     if (!this.options.createIndexes) {
       return;
     }
 
     try {
-      await coll?.createIndexes(this.getIndexSpecs());
+      await coll.createIndexes(this.getIndexSpecs());
     } catch (error) {
       this.options.log('error', this.label, 'Error ensuring indexes:', error);
     }
-
-    return coll;
   }
 
   getIndexSpecs(): IndexDescriptionInfo[] {

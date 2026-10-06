@@ -126,6 +126,29 @@ test('scheduling in parallel creates only one job', async (t) => {
   expect(planned.length).toBe(1);
 });
 
+test('schedule does not retry forever on _id collision', async (t) => {
+  await t.scheduler.collection!.insertOne({
+    _id: 'fixed',
+    jobId: 'job0',
+    isScheduled: true,
+    state: 'completed',
+    result: undefined,
+    nextRun: new Date(),
+    lock: null,
+    finishedOn: new Date(),
+    attempt: 0,
+    data: undefined,
+    history: [],
+  });
+
+  const job = t.scheduler.addJob('job0', () => undefined, {
+    schedule: { hours: 1 },
+    getExecutionId: () => 'fixed',
+  });
+
+  await expect(job.schedule()).resolves.toBeUndefined();
+});
+
 test('multiple workers', async (t) => {
   const fn = vi.fn();
   const props = ['job0', fn] as const;

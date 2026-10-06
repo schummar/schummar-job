@@ -12,7 +12,7 @@ import {
   type Logger,
   type LogLevel,
 } from './types';
-import { MongoError, type Filter } from 'mongodb';
+import { MongoServerError, type Filter } from 'mongodb';
 import { nanoid } from 'nanoid';
 import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
@@ -223,6 +223,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     if (this.hasShutDown || !schedule || !this.options.scheduler?.collection) return;
 
     try {
+      await this.options.scheduler.indexesReady;
+
       const data = (schedule as { data?: Data }).data;
       const _id = this.options.getExecutionId?.(data as Data) ?? nanoid();
 
@@ -257,9 +259,9 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
       return state ?? undefined;
     } catch (error) {
-      if (error instanceof MongoError && error.code === 11000) {
-        // Duplicate key => another instance scheduled it simultaneously
-        // repeating the call should return the existing one
+      // Only a collision on the scheduled-job index means another instance won the race.
+      // An _id collision (e.g. a fixed getExecutionId hitting a finished run) would retry forever.
+      if (error instanceof MongoServerError && error.code === 11000 && error.keyPattern?.jobId !== undefined) {
         return this.schedule(lastRun);
       }
 
