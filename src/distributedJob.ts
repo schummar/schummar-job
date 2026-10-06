@@ -12,7 +12,7 @@ import {
   type Logger,
   type LogLevel,
 } from './types';
-import { MongoServerError, type Filter } from 'mongodb';
+import { type Filter, type UpdateFilter } from 'mongodb';
 import { nanoid } from 'nanoid';
 import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
@@ -105,7 +105,9 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
     let $set: Partial<JobDbEntry<Data, Result, Progress>> = {};
 
-    if (!executionId && replacePlanned) {
+    const replace = !executionId && !!replacePlanned;
+
+    if (replace) {
       filter = {
         jobId: this.options.jobId,
         isScheduled: false,
@@ -126,14 +128,10 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
       };
     }
 
-    const result = await this.collection.findOneAndUpdate(
-      filter,
-      { $setOnInsert, $set },
-      {
-        upsert: true,
-        returnDocument: 'after',
-      },
-    );
+    // A filter on _id is already atomic thanks to its unique index
+    const result = replace
+      ? await this.safeUpsert(filter, { $setOnInsert, $set })
+      : await this.collection.findOneAndUpdate(filter, { $setOnInsert, $set }, { upsert: true, returnDocument: 'after' });
 
     this.options.log?.(
       'debug',
@@ -223,12 +221,10 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     if (this.hasShutDown || !schedule || !this.options.scheduler?.collection) return;
 
     try {
-      await this.options.scheduler.indexesReady;
-
       const data = (schedule as { data?: Data }).data;
       const _id = this.options.getExecutionId?.(data as Data) ?? nanoid();
 
-      const state = await this.collection.findOneAndUpdate(
+      const state = await this.safeUpsert(
         {
           jobId: this.options.jobId,
           isScheduled: true,
@@ -251,23 +247,33 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             nextRun: calcNextRun(schedule, lastRun),
           },
         },
-        {
-          upsert: true,
-          returnDocument: 'after',
-        },
       );
 
       return state ?? undefined;
     } catch (error) {
-      // Only a collision on the scheduled-job index means another instance won the race.
-      // An _id collision (e.g. a fixed getExecutionId hitting a finished run) would retry forever.
-      if (error instanceof MongoServerError && error.code === 11000 && error.keyPattern?.jobId !== undefined) {
-        return this.schedule(lastRun);
-      }
-
       this.options.log?.('warn', this.label, 'Failed to schedule next run:', error);
       setTimeout(() => this.schedule(), 10_000);
     }
+  }
+
+  /**
+   * Upsert for filters without a unique index behind them. Concurrent calls would each see no match and
+   * each insert. Writing a shared per-job document makes them conflict, so withTransaction retries the
+   * loser, which then finds the winner's document.
+   */
+  private async safeUpsert(
+    filter: Filter<JobDbEntry<any, any, any>>,
+    update: UpdateFilter<JobDbEntry<any, any, any>>,
+  ): Promise<JobDbEntry<Data, Result, Progress> | null> {
+    const scheduler = this.options.scheduler!;
+    await scheduler.indexesReady;
+
+    return await this.collection.db.client.withSession((session) =>
+      session.withTransaction(async () => {
+        await scheduler.lockCollection!.updateOne({ _id: this.options.jobId }, { $inc: { n: 1 } }, { upsert: true, session });
+        return await this.collection.findOneAndUpdate(filter, update, { upsert: true, returnDocument: 'after', session });
+      }),
+    );
   }
 
   private async watchSchedule() {

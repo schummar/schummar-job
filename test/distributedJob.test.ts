@@ -23,6 +23,7 @@ beforeEach(async (t) => {
     lockDuration: 100,
     log: () => undefined,
   });
+  await t.scheduler.indexesReady;
 });
 
 afterEach(async (t) => {
@@ -97,7 +98,8 @@ test('repeated error in scheduled job', { retry: 3 }, async (t) => {
 
   await expect(waitUntilJob(job, id, (j) => j.state === 'error' && j.attempt === 2, 5000)).resolves.toBeUndefined();
 
-  const [plannedJob] = await job.getPlanned();
+  let plannedJob: JobDbEntry<undefined, undefined, number> | undefined;
+  await poll(async () => ([plannedJob] = await job.getPlanned()).length > 0);
   expect(plannedJob).toMatchObject({
     _id: expect.not.stringMatching(id),
     jobId: 'job0',
@@ -292,6 +294,33 @@ test('replacePlanned sameData', async (t) => {
   expect(fn.mock.calls.filter(([x]) => x === 1).length).toBe(2);
   expect(fn.mock.calls.filter(([x]) => x === 2).length).toBe(2);
   expect(fn.mock.calls.filter(([x]) => x === 3).length).toBe(1);
+});
+
+test('replacePlanned in parallel creates only one job', async (t) => {
+  const job = t.scheduler.addJob<number>('job0');
+
+  const ids = await Promise.all(
+    Array(10)
+      .fill(0)
+      .map((_, i) => job.execute(i, { delay: 10_000, replacePlanned: true })),
+  );
+
+  const planned = await job.getPlanned();
+  expect(planned.length).toBe(1);
+  expect(new Set(ids)).toEqual(new Set([planned[0]!._id]));
+});
+
+test('replacePlanned with match in parallel creates one job per match', async (t) => {
+  const job = t.scheduler.addJob<number>('job0');
+
+  await Promise.all(
+    Array(20)
+      .fill(0)
+      .map((_, i) => job.execute(i % 2, { delay: 10_000, replacePlanned: { match: { data: i % 2 } } })),
+  );
+
+  const planned = await job.getPlanned();
+  expect(planned.map((x) => x.data).sort((a, b) => a - b)).toEqual([0, 1]);
 });
 
 test('progress', async (t) => {

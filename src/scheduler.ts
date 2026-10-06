@@ -9,7 +9,15 @@ import {
   LocalJobOptions,
   SchedulerOptions,
 } from './types';
-import { ChangeStream, Collection, MongoClient, type ChangeStreamDocument, type Filter, type IndexDescriptionInfo } from 'mongodb';
+import {
+  ChangeStream,
+  Collection,
+  MongoClient,
+  MongoServerError,
+  type ChangeStreamDocument,
+  type Filter,
+  type IndexDescriptionInfo,
+} from 'mongodb';
 
 const defaultLogger: SchedulerOptions['log'] = (level, ...args) => {
   if (level === 'error' || level === 'warn') {
@@ -25,6 +33,7 @@ export class Scheduler {
 
   readonly client?: MongoClient;
   readonly collection?: Collection<JobDbEntry<any, any, any>>;
+  readonly lockCollection?: Collection<{ _id: string; n: number }>;
   readonly indexesReady: Promise<void>;
   private distributedJobs = new Set<DistributedJob<any, any, any>>();
   private localJobs = new Set<LocalJob<any, any>>();
@@ -61,6 +70,7 @@ export class Scheduler {
       this.collection = collection;
     }
 
+    this.lockCollection = this.collection?.db.collection(`${this.collection.collectionName}_locks`);
     this.indexesReady = this.collection ? this.ensureIndexes(this.collection) : Promise.resolve();
   }
 
@@ -71,6 +81,11 @@ export class Scheduler {
 
     try {
       await coll.createIndexes(this.getIndexSpecs());
+
+      // Creating it implicitly inside concurrent transactions can fail
+      await coll.db.createCollection(`${coll.collectionName}_locks`).catch((error) => {
+        if (!(error instanceof MongoServerError && error.codeName === 'NamespaceExists')) throw error;
+      });
     } catch (error) {
       this.options.log('error', this.label, 'Error ensuring indexes:', error);
     }
