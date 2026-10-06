@@ -699,3 +699,15 @@ test('concurrent flushes do not duplicate history', async (t) => {
     '9',
   ]);
 });
+
+test('a failed completion write is retried instead of failing the run', async (t) => {
+  const collection = t.scheduler.collection!;
+  const fn = vi.fn(() => {
+    vi.spyOn(collection, 'updateOne').mockRejectedValueOnce(new Error('network error'));
+    return 42;
+  });
+  const job = t.scheduler.addJob('job0', fn, { retryDelay: 0 });
+
+  await expect(job.executeAndAwait()).resolves.toBe(42);
+  expect(fn).toHaveBeenCalledTimes(1);
+});

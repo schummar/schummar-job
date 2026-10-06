@@ -18,6 +18,8 @@ import assert from 'node:assert';
 import { createQueue, type Queue } from 'schummar-queue';
 
 const PICK_UP_RETRY_DELAY = 1000;
+const FINAL_FLUSH_RETRIES = 5;
+const FINAL_FLUSH_RETRY_DELAY = 100;
 
 export class DistributedJob<Data = undefined, Result = undefined, Progress = number> {
   static DEFAULT_MAX_PARALLEL = 1;
@@ -486,62 +488,81 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         const timeoutHandle =
           timeout !== undefined ? setTimeout(() => abortController.abort(new Error(`Timed out after ${timeout}ms`)), timeout) : undefined;
 
+        // Retried, because a failed write here must not turn a finished run into a failed one
+        const finalFlush = async () => {
+          for (let attempt = 0; ; attempt++) {
+            try {
+              return await flush({ heartbeat: false });
+            } catch (error) {
+              if (attempt >= FINAL_FLUSH_RETRIES) throw error;
+              await sleep(FINAL_FLUSH_RETRY_DELAY * 2 ** attempt);
+            }
+          }
+        };
+
         try {
           this.options.log?.('debug', this.label, 'run', job?._id);
 
           addHistory('start', 'info');
 
-          const result = await Promise.race([
-            this.options.run(job.data, {
-              job,
-              setProgress(progress) {
-                $set.progress = progress;
-              },
-              logger,
-              flush: () => flush(),
-              signal: abortController.signal,
-            }),
-            aborted,
-          ]);
-          clearTimeout(timeoutHandle);
+          let outcome: { ok: true; result: Result } | { ok: false; error: unknown };
+          try {
+            const result = await Promise.race([
+              this.options.run(job.data, {
+                job,
+                setProgress(progress) {
+                  $set.progress = progress;
+                },
+                logger,
+                flush: () => flush(),
+                signal: abortController.signal,
+              }),
+              aborted,
+            ]);
+            outcome = { ok: true, result };
+          } catch (error) {
+            outcome = { ok: false, error };
+          } finally {
+            clearTimeout(timeoutHandle);
+            clearInterval(flushInterval);
+          }
 
-          Object.assign($set, {
-            lock: null,
-            lockId: null,
-            finishedOn: new Date(),
-            state: 'completed',
-            result,
-            error: null,
-          });
+          if (outcome.ok) {
+            Object.assign($set, {
+              lock: null,
+              lockId: null,
+              finishedOn: new Date(),
+              state: 'completed',
+              result: outcome.result,
+              error: null,
+            });
 
-          addHistory('complete', 'info');
-          clearInterval(flushInterval);
-          await flush({ heartbeat: false });
+            addHistory('complete', 'info');
+            await finalFlush();
 
-          this.options.log?.('debug', this.label, 'done', job?._id);
-        } catch (error) {
-          clearTimeout(timeoutHandle);
-          const errorString = errorToString(error);
-          const shouldRetry = job.attempt < this.options.retryCount;
+            this.options.log?.('debug', this.label, 'done', job?._id);
+          } else {
+            const errorString = errorToString(outcome.error);
+            const shouldRetry = job.attempt < this.options.retryCount;
 
-          Object.assign($set, {
-            nextRun: shouldRetry ? new Date(Date.now() + this.options.retryDelay) : job.nextRun,
-            lock: null,
-            lockId: null,
-            attempt: shouldRetry ? job.attempt + 1 : job.attempt,
-            progress: 0,
-            state: shouldRetry ? 'planned' : 'error',
-            error: errorString,
-          });
+            Object.assign($set, {
+              nextRun: shouldRetry ? new Date(Date.now() + this.options.retryDelay) : job.nextRun,
+              lock: null,
+              lockId: null,
+              attempt: shouldRetry ? job.attempt + 1 : job.attempt,
+              progress: 0,
+              state: shouldRetry ? 'planned' : 'error',
+              error: errorString,
+            });
 
-          addHistory('error', 'error', errorString);
-          clearInterval(flushInterval);
+            addHistory('error', 'error', errorString);
 
-          await flush({ heartbeat: false }).catch((e) => {
-            this.options.log?.('warn', this.label, 'Failed to flush job updates after error:', e);
-          });
+            await finalFlush().catch((e) => {
+              this.options.log?.('warn', this.label, 'Failed to flush job updates after error:', e);
+            });
 
-          throw error;
+            throw outcome.error;
+          }
         } finally {
           await this.schedule(job.nextRun);
         }
