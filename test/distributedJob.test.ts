@@ -671,3 +671,31 @@ test('an expired lock counts as a failed attempt', async (t) => {
   expect(fn).toHaveBeenCalledTimes(1);
   expect(await collection.findOne({ _id: 'retry' })).toMatchObject({ attempt: 1 });
 });
+
+test('concurrent flushes do not duplicate history', async (t) => {
+  const job = t.scheduler.addJob('job0', async (_data, { logger, flush }) => {
+    const flushes = [];
+    for (let i = 0; i < 10; i++) {
+      logger.info(`${i}`);
+      flushes.push(flush());
+    }
+    await Promise.all(flushes);
+  });
+
+  const id = await job.execute();
+  await job.await(id);
+
+  const execution = await job.getExecution(id);
+  expect(execution?.history.filter((x) => x.event === 'log').map((x) => x.message)).toEqual([
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+  ]);
+});

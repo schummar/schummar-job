@@ -436,9 +436,19 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
         // While running, every flush also refreshes the lock so checkLocks doesn't release it
         const flush = async ({ heartbeat = true } = {}) => {
+          if (lockLost) {
+            return;
+          }
+
+          // Take the buffers now: entries added while this write is in flight belong to the next flush
+          const set = $set;
+          const batch = history;
+          $set = {};
+          history = [];
+
           const update: UpdateFilter<JobDbEntry<any, any, any>> = {
-            ...(Object.keys($set).length > 0 && { $set }),
-            ...(history.length > 0 && { $push: { history: { $each: history } } }),
+            ...(Object.keys(set).length > 0 && { $set: set }),
+            ...(batch.length > 0 && { $push: { history: { $each: batch } } }),
             ...(heartbeat && { $currentDate: { lock: true } }),
           };
 
@@ -446,14 +456,15 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             return;
           }
 
-          if (lockLost) {
-            return;
+          let res;
+          try {
+            // Only while we still hold the lock. Otherwise another worker may have taken over the run.
+            res = await q.schedule(() => this.collection.updateOne({ _id: job._id, lockId }, update));
+          } catch (error) {
+            $set = { ...set, ...$set };
+            history = [...batch, ...history];
+            throw error;
           }
-
-          const historyLength = history.length;
-          // Only while we still hold the lock. Otherwise another worker may have taken over the run.
-          const res = await q.schedule(() => this.collection.updateOne({ _id: job._id, lockId }, update));
-          history = history.slice(historyLength);
 
           if (res.matchedCount === 0) {
             lockLost = true;
