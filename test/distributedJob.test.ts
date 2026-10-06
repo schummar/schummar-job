@@ -622,3 +622,25 @@ test('a throwing watch callback does not cause an unhandled rejection', async (t
   await sleep(100);
   expect(unhandled.errors).toEqual([]);
 });
+
+test('timeout fails a hung run and frees the worker', async (t) => {
+  let calls = 0;
+  let firstSignal: AbortSignal | undefined;
+
+  const job = t.scheduler.addJob(
+    'job0',
+    (_data, { signal }) => {
+      calls++;
+      if (calls === 1) {
+        firstSignal = signal;
+        return new Promise<number>(() => undefined);
+      }
+      return 42;
+    },
+    { timeout: 100, retryCount: 0 },
+  );
+
+  await expect(job.executeAndAwait()).rejects.toThrow('Timed out after 100ms');
+  expect(firstSignal?.aborted).toBe(true);
+  await expect(job.executeAndAwait()).resolves.toBe(42);
+});

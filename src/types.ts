@@ -72,6 +72,8 @@ export interface DistributedJobHelpers<Data, Progress> {
   setProgress(progress: Progress): void;
   logger: Logger;
   flush: () => Promise<void>;
+  /** Aborted when the run times out or this worker loses its lock. The run then no longer counts. */
+  signal: AbortSignal;
 }
 
 export interface LocalJobOptions<Data, Result> {
@@ -93,6 +95,8 @@ export interface DistributedJobOptions<Data, Result, Progress> extends Omit<Loca
   lockCheckInterval?: number;
   forwardJobLogs?: boolean;
   getExecutionId?: NoInfer<(data: Data) => string | undefined>;
+  /** Fail a run that takes longer than this many milliseconds. A hung run otherwise blocks its worker forever. */
+  timeout?: number;
 }
 
 export interface DistributedJobOptionsNormalized<Data, Result, Progress> extends MakeRequired<

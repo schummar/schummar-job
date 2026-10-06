@@ -65,6 +65,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
       lockCheckInterval: options.lockCheckInterval ?? options.scheduler?.options.lockCheckInterval ?? Scheduler.DEFAULT_LOCK_CHECK_INTERVAL,
       forwardJobLogs: options.forwardJobLogs ?? options.scheduler?.options.forwardJobLogs ?? false,
       getExecutionId: options.getExecutionId,
+      timeout: options.timeout,
       schedule: options.schedule,
       maxParallel: options.maxParallel ?? DistributedJob.DEFAULT_MAX_PARALLEL,
       retryCount: options.retryCount ?? options.scheduler?.options.retryCount ?? Scheduler.DEFAULT_RETRY_COUNT,
@@ -396,6 +397,11 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         });
 
         let lockLost = false;
+        const abortController = new AbortController();
+        const aborted = new Promise<never>((_resolve, reject) => {
+          abortController.signal.addEventListener('abort', () => reject(abortController.signal.reason as Error));
+        });
+        aborted.catch(() => undefined);
 
         // While running, every flush also refreshes the lock so checkLocks doesn't release it
         const flush = async ({ heartbeat = true } = {}) => {
@@ -421,6 +427,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           if (res.matchedCount === 0) {
             lockLost = true;
             this.options.log?.('warn', this.label, 'Lost lock, discarding updates for', job._id);
+            abortController.abort(new Error('Lost lock'));
           }
         };
 
@@ -433,19 +440,28 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           Math.min(1000, this.options.lockDuration / 3),
         );
 
+        const { timeout } = this.options;
+        const timeoutHandle =
+          timeout !== undefined ? setTimeout(() => abortController.abort(new Error(`Timed out after ${timeout}ms`)), timeout) : undefined;
+
         try {
           this.options.log?.('debug', this.label, 'run', job?._id);
 
           addHistory('start', 'info');
 
-          const result = await this.options.run(job.data, {
-            job,
-            setProgress(progress) {
-              $set.progress = progress;
-            },
-            logger,
-            flush: () => flush(),
-          });
+          const result = await Promise.race([
+            this.options.run(job.data, {
+              job,
+              setProgress(progress) {
+                $set.progress = progress;
+              },
+              logger,
+              flush: () => flush(),
+              signal: abortController.signal,
+            }),
+            aborted,
+          ]);
+          clearTimeout(timeoutHandle);
 
           Object.assign($set, {
             lock: null,
@@ -462,6 +478,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
           this.options.log?.('debug', this.label, 'done', job?._id);
         } catch (error) {
+          clearTimeout(timeoutHandle);
           const errorString = errorToString(error);
           const shouldRetry = job.attempt < this.options.retryCount;
 
