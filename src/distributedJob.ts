@@ -291,8 +291,15 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     while (!this.hasShutDown) {
       if (this.options.scheduler?.collection) {
         try {
-          const threshold = new Date(Date.now() - this.options.lockDuration);
-          const res = await this.collection.updateMany({ jobId: this.options.jobId, lock: { $lt: threshold } }, { $set: { lock: null } });
+          // Server time, so clock differences between instances don't release locks early
+          const res = await this.collection.updateMany(
+            {
+              jobId: this.options.jobId,
+              lock: { $type: 'date' },
+              $expr: { $lt: ['$lock', { $subtract: ['$$NOW', this.options.lockDuration] }] },
+            },
+            { $set: { lock: null } },
+          );
           if (res.modifiedCount) this.options.log?.('info', this.label, 'Unlocked jobs:', res.modifiedCount);
         } catch (e) {
           this.options.log?.('warn', this.label, 'Failed to check locks:', e);
@@ -323,9 +330,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
             nextRun: { $lte: now },
             lock: null,
           },
-          {
-            $set: { lock: now },
-          },
+          { $currentDate: { lock: true } },
+          { returnDocument: 'after' },
         );
 
         if (!job) {
@@ -361,26 +367,31 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           },
         });
 
-        const flush = async () => {
-          if (Object.keys($set).length === 0 && history.length === 0) {
-            return;
-          }
-
-          const update = {
+        // While running, every flush also refreshes the lock so checkLocks doesn't release it
+        const flush = async ({ heartbeat = true } = {}) => {
+          const update: UpdateFilter<JobDbEntry<any, any, any>> = {
             ...(Object.keys($set).length > 0 && { $set }),
             ...(history.length > 0 && { $push: { history: { $each: history } } }),
+            ...(heartbeat && { $currentDate: { lock: true } }),
           };
+
+          if (Object.keys(update).length === 0) {
+            return;
+          }
 
           const historyLength = history.length;
           await q.schedule(() => this.collection.updateOne({ _id: job._id }, update));
           history = history.slice(historyLength);
         };
 
-        const flushInterval = setInterval(() => {
-          flush().catch((e) => {
-            this.options.log?.('warn', this.label, 'Failed to flush job updates:', e);
-          });
-        }, 1000);
+        const flushInterval = setInterval(
+          () => {
+            flush().catch((e) => {
+              this.options.log?.('warn', this.label, 'Failed to flush job updates:', e);
+            });
+          },
+          Math.min(1000, this.options.lockDuration / 3),
+        );
 
         try {
           this.options.log?.('debug', this.label, 'run', job?._id);
@@ -393,7 +404,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
               $set.progress = progress;
             },
             logger,
-            flush,
+            flush: () => flush(),
           });
 
           Object.assign($set, {
@@ -406,7 +417,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
           addHistory('complete', 'info');
           clearInterval(flushInterval);
-          await flush();
+          await flush({ heartbeat: false });
 
           this.options.log?.('debug', this.label, 'done', job?._id);
         } catch (error) {
@@ -425,7 +436,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
           addHistory('error', 'error', errorString);
           clearInterval(flushInterval);
 
-          await flush().catch((e) => {
+          await flush({ heartbeat: false }).catch((e) => {
             this.options.log?.('warn', this.label, 'Failed to flush job updates after error:', e);
           });
 

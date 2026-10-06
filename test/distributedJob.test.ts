@@ -265,8 +265,8 @@ test('replacePlanned', async (t) => {
   });
   const job = t.scheduler.addJob('job0', fn);
 
-  await job.execute(0);
-  await job.execute(1);
+  await job.execute(0, { delay: 200 });
+  await job.execute(1, { delay: 200 });
   const result = await job.executeAndAwait(2, { replacePlanned: true });
 
   expect(result).toBe(2);
@@ -517,4 +517,27 @@ test('add scheduler later', async (t) => {
   t.scheduler.addJob(job);
 
   expect(await job.executeAndAwait()).toBe(42);
+});
+
+test('a job running longer than lockDuration is not started twice', async (t) => {
+  const collection = t.scheduler.collection!;
+  const other = new Scheduler({ client, collection, lockDuration: 200, lockCheckInterval: 50, log: () => undefined });
+  const scheduler = new Scheduler({ client, collection, lockDuration: 200, lockCheckInterval: 50, log: () => undefined });
+
+  try {
+    let starts = 0;
+    const run = async () => {
+      starts++;
+      await sleep(1000);
+    };
+
+    const job = scheduler.addJob('job0', run);
+    other.addJob('job0', run);
+
+    await job.executeAndAwait();
+    expect(starts).toBe(1);
+  } finally {
+    await scheduler.shutdown();
+    await other.shutdown();
+  }
 });
