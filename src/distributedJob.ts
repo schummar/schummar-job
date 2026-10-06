@@ -604,7 +604,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
       if (executionId === job._id) listener(job);
     }
 
-    if (job.state === 'planned') {
+    // A locked execution is running somewhere. Its release produces another event.
+    if (job.state === 'planned' && !job.lock) {
       return this.planNextRun(job);
     }
   }

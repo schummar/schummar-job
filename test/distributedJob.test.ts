@@ -711,3 +711,29 @@ test('a failed completion write is retried instead of failing the run', async (t
   await expect(job.executeAndAwait()).resolves.toBe(42);
   expect(fn).toHaveBeenCalledTimes(1);
 });
+
+test('updates to a running job do not make other instances poll', async (t) => {
+  const collection = db.collection<JobDbEntry<any, any, any>>(t.task.name);
+  const observer = new Scheduler({ client, collection, lockDuration: 100, log: () => undefined });
+
+  const run = async (_data: undefined, { setProgress }: { setProgress: (progress: number) => void }) => {
+    for (let i = 0; i < 10; i++) {
+      setProgress(i);
+      await sleep(100);
+    }
+  };
+
+  try {
+    // Whichever instance runs the job, the other one is idle
+    observer.addJob('job0', run);
+    const job = t.scheduler.addJob('job0', run);
+    await sleep(200);
+
+    const pickUps = [vi.spyOn(collection, 'findOneAndUpdate'), vi.spyOn(t.scheduler.collection!, 'findOneAndUpdate')];
+    await job.executeAndAwait();
+
+    expect(pickUps[0]!.mock.calls.length + pickUps[1]!.mock.calls.length).toBeLessThan(6);
+  } finally {
+    await observer.shutdown();
+  }
+});
