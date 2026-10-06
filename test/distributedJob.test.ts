@@ -751,3 +751,16 @@ test('updateOptions does not start additional background loops', async (t) => {
   // One loop runs about 10 checks of 2 updates each in that time
   expect(lockChecks.mock.calls.length).toBeLessThan(40);
 });
+
+test('failing schedule() calls share one retry timer', async (t) => {
+  vi.spyOn(t.scheduler.lockCollection!, 'updateOne').mockRejectedValue(new Error('network error'));
+  const timers = vi.spyOn(globalThis, 'setTimeout');
+
+  const job = t.scheduler.addJob('job0', () => undefined, { schedule: { hours: 1 } });
+  for (let i = 0; i < 4; i++) {
+    await job.schedule();
+  }
+
+  expect(timers.mock.calls.filter(([, ms]) => ms === 10_000)).toHaveLength(1);
+  timers.mockRestore();
+});

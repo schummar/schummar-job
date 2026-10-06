@@ -26,6 +26,7 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
 
   private q: Queue;
   private timeout?: { handle: NodeJS.Timeout; date: Date };
+  private scheduleRetry?: NodeJS.Timeout;
   private hasShutDown = false;
   private subscribedExecutionIds = new Map<JobListener<Data, Result, Progress>, string>();
   private label: string;
@@ -230,6 +231,8 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
     this.options.log?.('info', this.label, 'shutting down');
 
     this.hasShutDown = true;
+    clearTimeout(this.scheduleRetry);
+    delete this.scheduleRetry;
     if (this.timeout) {
       clearTimeout(this.timeout.handle);
       delete this.timeout;
@@ -271,10 +274,18 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         },
       );
 
+      clearTimeout(this.scheduleRetry);
+      delete this.scheduleRetry;
+
       return state ?? undefined;
     } catch (error) {
       this.options.log?.('warn', this.label, 'Failed to schedule next run:', error);
-      setTimeout(() => this.schedule(), 10_000);
+
+      // One pending retry is enough, however many callers failed
+      this.scheduleRetry ??= setTimeout(() => {
+        delete this.scheduleRetry;
+        void this.schedule();
+      }, 10_000);
     }
   }
 
