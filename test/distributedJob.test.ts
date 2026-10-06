@@ -787,3 +787,24 @@ test('replacePlanned works in parallel without createIndexes', async (t) => {
     await scheduler.shutdown();
   }
 });
+
+test('a failed flush is carried by the next one', async (t) => {
+  const collection = t.scheduler.collection!;
+  const updateOne = collection.updateOne.bind(collection);
+
+  const job = t.scheduler.addJob('job0', (_data, { logger, flush }) => {
+    logger.info('a');
+    vi.spyOn(collection, 'updateOne').mockImplementationOnce(async () => {
+      await sleep(50);
+      throw new Error('network error');
+    });
+    flush().catch(() => undefined);
+  });
+
+  const id = await job.execute();
+  await job.await(id);
+  vi.mocked(collection.updateOne).mockImplementation(updateOne);
+
+  const execution = await job.getExecution(id);
+  expect(execution?.history.map((x) => x.message ?? x.event)).toEqual(['start', 'a', 'complete']);
+});

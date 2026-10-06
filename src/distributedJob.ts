@@ -448,43 +448,45 @@ export class DistributedJob<Data = undefined, Result = undefined, Progress = num
         aborted.catch(() => undefined);
 
         // While running, every flush also refreshes the lock so checkLocks doesn't release it
-        const flush = async ({ heartbeat = true } = {}) => {
-          if (lockLost) {
-            return;
-          }
+        const flush = ({ heartbeat = true } = {}) =>
+          q.schedule(async () => {
+            if (lockLost) {
+              return;
+            }
 
-          // Take the buffers now: entries added while this write is in flight belong to the next flush
-          const set = $set;
-          const batch = history;
-          $set = {};
-          history = [];
+            // Take the buffers when the write runs, not when it is queued: a failed earlier write puts its
+            // entries back first, so this one carries them
+            const set = $set;
+            const batch = history;
+            $set = {};
+            history = [];
 
-          const update: UpdateFilter<JobDbEntry<any, any, any>> = {
-            ...(Object.keys(set).length > 0 && { $set: set }),
-            ...(batch.length > 0 && { $push: { history: { $each: batch } } }),
-            ...(heartbeat && { $currentDate: { lock: true } }),
-          };
+            const update: UpdateFilter<JobDbEntry<any, any, any>> = {
+              ...(Object.keys(set).length > 0 && { $set: set }),
+              ...(batch.length > 0 && { $push: { history: { $each: batch } } }),
+              ...(heartbeat && { $currentDate: { lock: true } }),
+            };
 
-          if (Object.keys(update).length === 0) {
-            return;
-          }
+            if (Object.keys(update).length === 0) {
+              return;
+            }
 
-          let res;
-          try {
-            // Only while we still hold the lock. Otherwise another worker may have taken over the run.
-            res = await q.schedule(() => this.collection.updateOne({ _id: job._id, lockId }, update));
-          } catch (error) {
-            $set = { ...set, ...$set };
-            history = [...batch, ...history];
-            throw error;
-          }
+            let res;
+            try {
+              // Only while we still hold the lock. Otherwise another worker may have taken over the run.
+              res = await this.collection.updateOne({ _id: job._id, lockId }, update);
+            } catch (error) {
+              $set = { ...set, ...$set };
+              history = [...batch, ...history];
+              throw error;
+            }
 
-          if (res.matchedCount === 0) {
-            lockLost = true;
-            this.options.log?.('warn', this.label, 'Lost lock, discarding updates for', job._id);
-            abortController.abort(new Error('Lost lock'));
-          }
-        };
+            if (res.matchedCount === 0) {
+              lockLost = true;
+              this.options.log?.('warn', this.label, 'Lost lock, discarding updates for', job._id);
+              abortController.abort(new Error('Lost lock'));
+            }
+          });
 
         const flushInterval = setInterval(
           () => {
