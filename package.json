@@ -47,7 +47,7 @@
     "schummar-queue": "0.4.0",
     "testcontainers": "^12.0.1",
     "typescript": "6.0.3",
-    "vite-plus": "^0.1.24"
+    "vite-plus": "^1.1.0"
   },
   "peerDependencies": {
     "mongodb": ">=6.0.0"
