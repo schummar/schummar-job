@@ -274,3 +274,31 @@ test('a job added later takes the scheduler defaults', async () => {
     await scheduler.shutdown();
   }
 });
+
+test('shutdown waits for the change stream, so closing the client right after is safe', async (t) => {
+  using unhandled = trackUnhandledRejections();
+  const ownClient = new MongoClient(connectionString, { directConnection: true, monitorCommands: true });
+  // A getMore still running when the client closes rejects with nobody awaiting it
+  const getMoresInFlight = new Set<number>();
+  ownClient.on('commandStarted', (e) => e.commandName === 'getMore' && getMoresInFlight.add(e.requestId));
+  ownClient.on('commandSucceeded', (e) => getMoresInFlight.delete(e.requestId));
+  ownClient.on('commandFailed', (e) => getMoresInFlight.delete(e.requestId));
+
+  const scheduler = new Scheduler({
+    client: ownClient,
+    collection: ownClient.db('schummar-job-scheduler-tests').collection(t.task.name),
+    log: () => undefined,
+  });
+  const started = vi.fn();
+  scheduler.onReconnect(started);
+
+  scheduler.addJob('job0', () => undefined);
+  await poll(() => started.mock.calls.length > 0 && getMoresInFlight.size > 0);
+
+  await scheduler.shutdown();
+  expect(getMoresInFlight.size).toBe(0);
+
+  await ownClient.close();
+  await sleep(100);
+  expect(unhandled.errors).toEqual([]);
+});

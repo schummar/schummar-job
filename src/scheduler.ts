@@ -9,15 +9,7 @@ import {
   LocalJobOptions,
   SchedulerOptions,
 } from './types';
-import {
-  ChangeStream,
-  Collection,
-  MongoClient,
-  MongoServerError,
-  type ChangeStreamDocument,
-  type Filter,
-  type IndexDescriptionInfo,
-} from 'mongodb';
+import { ChangeStream, Collection, MongoClient, MongoServerError, type Filter, type IndexDescriptionInfo } from 'mongodb';
 
 const defaultLogger: SchedulerOptions['log'] = (level, ...args) => {
   if (level === 'error' || level === 'warn') {
@@ -38,6 +30,7 @@ export class Scheduler {
   private distributedJobs = new Set<DistributedJob<any, any, any>>();
   private localJobs = new Set<LocalJob<any, any>>();
   private stream?: ChangeStream<JobDbEntry<any, any, any>>;
+  private watching?: Promise<void>;
   private hasShutDown = false;
   private label = `[schummar-job]`;
   private executionListeners = new Set<(execution: JobDbEntry<any, any, any>) => void>();
@@ -116,77 +109,76 @@ export class Scheduler {
     ];
   }
 
-  private async watch() {
-    if (!this.client || !this.collection) {
-      throw new Error('No db set up!');
-    }
-
-    if (this.hasShutDown || this.stream) {
+  private watch() {
+    const { client, collection } = this;
+    if (!client || !collection || this.hasShutDown || this.watching) {
       return;
     }
 
-    try {
-      this.options.log('debug', this.label, 'start db watcher');
+    this.watching = this.watchLoop(client, collection).finally(() => {
+      delete this.watching;
+    });
+  }
 
-      this.stream = this.client.watch(
-        [
-          {
-            $match: {
-              $or: [
-                { 'ns.db': this.collection.db.databaseName, 'ns.coll': this.collection.collectionName },
-                { operationType: 'rename', 'to.db': this.collection.db.databaseName, 'to.coll': this.collection.collectionName },
-              ],
+  private async watchLoop(client: MongoClient, collection: Collection<JobDbEntry<any, any, any>>) {
+    while (!this.hasShutDown) {
+      try {
+        this.options.log('debug', this.label, 'start db watcher');
+
+        this.stream = client.watch(
+          [
+            {
+              $match: {
+                $or: [
+                  { 'ns.db': collection.db.databaseName, 'ns.coll': collection.collectionName },
+                  { operationType: 'rename', 'to.db': collection.db.databaseName, 'to.coll': collection.collectionName },
+                ],
+              },
             },
+          ],
+          {
+            fullDocument: 'updateLookup',
           },
-        ],
-        {
-          fullDocument: 'updateLookup',
-        },
-      );
-
-      // When starting watching or after connection loss, force refresh
-      this.stream.once('resumeTokenChanged', () => {
-        this.options.log('debug', this.label, 'db watcher first token');
-        this.notifyReconnect();
-      });
-
-      const cursor = this.stream.stream() as AsyncIterable<ChangeStreamDocument<JobDbEntry<any, any, any>>>;
-
-      for await (const change of cursor) {
-        this.options.log(
-          'debug',
-          this.label,
-          'db watcher change received',
-          'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument._id}` : undefined,
         );
 
-        switch (change.operationType) {
-          case 'insert':
-          case 'replace':
-          case 'update': {
-            if (change.fullDocument) {
-              this.notifyUpdate(change.fullDocument);
-            }
-            break;
-          }
+        // When starting watching or after connection loss, force refresh
+        this.stream.once('resumeTokenChanged', () => {
+          this.options.log('debug', this.label, 'db watcher first token');
+          this.notifyReconnect();
+        });
 
-          case 'rename': {
-            this.options.log('debug', this.label, 'db watcher rename detected, refreshing jobs');
-            this.notifyReconnect();
+        for await (const change of this.stream) {
+          this.options.log(
+            'debug',
+            this.label,
+            'db watcher change received',
+            'fullDocument' in change && change.fullDocument ? `${change.fullDocument.jobId} ${change.fullDocument._id}` : undefined,
+          );
+
+          switch (change.operationType) {
+            case 'insert':
+            case 'replace':
+            case 'update': {
+              if (change.fullDocument) {
+                this.notifyUpdate(change.fullDocument);
+              }
+              break;
+            }
+
+            case 'rename': {
+              this.options.log('debug', this.label, 'db watcher rename detected, refreshing jobs');
+              this.notifyReconnect();
+            }
           }
         }
+      } catch (e) {
+        if (this.hasShutDown) return;
+
+        this.options.log('warn', this.label, 'Change stream error:', e);
+        await sleep(1000);
+      } finally {
+        delete this.stream;
       }
-    } catch (e) {
-      if (this.hasShutDown) return;
-
-      this.options.log('warn', this.label, 'Change stream error:', e);
-      await sleep(1000);
-    }
-
-    delete this.stream;
-
-    if (!this.hasShutDown) {
-      void this.watch();
     }
   }
 
@@ -257,9 +249,7 @@ export class Scheduler {
 
     this.distributedJobs.add(job);
     this.hasShutDown = false;
-    if (this.client && this.collection) {
-      void this.watch();
-    }
+    this.watch();
 
     return job;
   }
@@ -349,6 +339,8 @@ export class Scheduler {
   async shutdown(): Promise<void> {
     this.hasShutDown = true;
     await this.stream?.close();
+    // close() doesn't wait for a getMore in flight; closing the client then rejects it unhandled
+    await this.watching;
     await this.clearJobs();
 
     this.options.log('info', this.label, 'shut down');
